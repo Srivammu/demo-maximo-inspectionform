@@ -1,0 +1,1162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Build Inspection Form in Maximo</title>
+    <style>
+      :root {
+        --bg: #f5f6f8;
+        --card: #ffffff;
+        --ink: #1a1d21;
+        --muted: #6b7280;
+        --line: #e3e6ea;
+        --brand: #0f62fe;
+        --brand-ink: #ffffff;
+        --ok: #0f7b4f;
+        --ok-bg: #e6f4ec;
+        --err: #b42318;
+        --err-bg: #fdeceb;
+        --warn: #8a5300;
+        --warn-bg: #fdf3e2;
+        --radius: 12px;
+        --shadow:
+          0 1px 2px rgba(16, 24, 40, 0.05), 0 8px 24px rgba(16, 24, 40, 0.06);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0d1117;
+          --card: #161b22;
+          --ink: #e6edf3;
+          --muted: #9198a1;
+          --line: #2b323b;
+          --brand: #4c8dff;
+          --brand-ink: #08111f;
+          --ok: #6ee7a8;
+          --ok-bg: #10291d;
+          --err: #ff9a90;
+          --err-bg: #2c1614;
+          --warn: #f0c274;
+          --warn-bg: #2b2113;
+          --shadow:
+            0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        min-height: 100vh;
+        font:
+          15px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          Helvetica,
+          Arial,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        padding: 32px 16px 64px;
+      }
+      .wrap {
+        max-width: 640px;
+        margin: 0 auto;
+      }
+      header {
+        margin-bottom: 24px;
+      }
+      h1 {
+        font-size: 22px;
+        line-height: 1.25;
+        margin: 0 0 6px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 14px;
+        margin: 0;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 20px;
+        margin-bottom: 16px;
+      }
+      /* ---------- dropzone ---------- */
+      .dz {
+        border: 1.5px dashed var(--line);
+        border-radius: var(--radius);
+        padding: 34px 20px;
+        text-align: center;
+        cursor: pointer;
+        transition:
+          border-color 0.15s,
+          background 0.15s;
+        background: transparent;
+        outline: none;
+      }
+      .dz:hover,
+      .dz:focus-visible {
+        border-color: var(--brand);
+      }
+      .dz:focus-visible {
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent);
+      }
+      .dz.drag {
+        border-color: var(--brand);
+        background: color-mix(in srgb, var(--brand) 7%, transparent);
+      }
+      .dz.hide {
+        display: none;
+      }
+      .dz svg {
+        width: 34px;
+        height: 34px;
+        color: var(--muted);
+        margin-bottom: 10px;
+      }
+      .dz b {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .dz small {
+        color: var(--muted);
+        display: block;
+        font-size: 12.5px;
+        margin-top: 8px;
+      }
+      .link {
+        color: var(--brand);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      /* ---------- selected file ---------- */
+      .file {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 12px 14px;
+      }
+      .file .ext {
+        flex: 0 0 auto;
+        width: 38px;
+        height: 38px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        background: color-mix(in srgb, var(--brand) 12%, transparent);
+        color: var(--brand);
+        font-size: 10.5px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+      }
+      .file .meta {
+        min-width: 0;
+        flex: 1;
+      }
+      .file .nm {
+        font-weight: 550;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .file .sz {
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      .x {
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 20px;
+        line-height: 1;
+        padding: 6px;
+        border-radius: 6px;
+      }
+      .x:hover {
+        background: var(--err-bg);
+        color: var(--err);
+      }
+      .x:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      /* ---------- buttons ---------- */
+      .actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+        flex-wrap: wrap;
+      }
+      button.primary,
+      button.ghost {
+        font: inherit;
+        font-weight: 600;
+        border-radius: 9px;
+        padding: 11px 18px;
+        cursor: pointer;
+        border: 1px solid transparent;
+        transition:
+          filter 0.15s,
+          background 0.15s;
+      }
+      button.primary {
+        background: var(--brand);
+        color: var(--brand-ink);
+        flex: 1 1 180px;
+      }
+      button.primary:hover:not(:disabled) {
+        filter: brightness(1.08);
+      }
+      button.primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      button.ghost {
+        background: transparent;
+        color: var(--ink);
+        border-color: var(--line);
+      }
+      button.ghost:hover:not(:disabled) {
+        background: var(--bg);
+      }
+      button.ghost:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .spin {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        margin-right: 8px;
+        vertical-align: -2px;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: sp 0.7s linear infinite;
+      }
+      @keyframes sp {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      /* ---------- messages ---------- */
+      .msg {
+        display: flex;
+        gap: 9px;
+        align-items: flex-start;
+        border-radius: 9px;
+        padding: 11px 13px;
+        font-size: 13.5px;
+        margin-top: 14px;
+        border: 1px solid transparent;
+      }
+      .msg.err {
+        background: var(--err-bg);
+        color: var(--err);
+        border-color: color-mix(in srgb, var(--err) 25%, transparent);
+      }
+      .msg.ok {
+        background: var(--ok-bg);
+        color: var(--ok);
+        border-color: color-mix(in srgb, var(--ok) 25%, transparent);
+      }
+      .msg.warn {
+        background: var(--warn-bg);
+        color: var(--warn);
+        border-color: color-mix(in srgb, var(--warn) 25%, transparent);
+      }
+      .msg .ic {
+        flex: 0 0 auto;
+        font-weight: 700;
+      }
+      /* ---------- steps ---------- */
+      .steps {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .steps li {
+        display: flex;
+        gap: 12px;
+        padding: 11px 0;
+        border-top: 1px solid var(--line);
+      }
+      .steps li:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .steps li:last-child {
+        padding-bottom: 0;
+      }
+      .dot {
+        flex: 0 0 auto;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-size: 11.5px;
+        font-weight: 700;
+        background: var(--bg);
+        color: var(--muted);
+        border: 1px solid var(--line);
+        margin-top: 1px;
+      }
+      li[data-state="running"] .dot {
+        border-color: var(--brand);
+        color: var(--brand);
+      }
+      li[data-state="done"] .dot {
+        background: var(--ok);
+        border-color: var(--ok);
+        color: var(--card);
+      }
+      li[data-state="failed"] .dot {
+        background: var(--err);
+        border-color: var(--err);
+        color: #fff;
+      }
+      li[data-state="skipped"] .dot {
+        opacity: 0.5;
+      }
+      .steps .lbl {
+        font-weight: 550;
+        font-size: 14px;
+      }
+      .steps .det {
+        color: var(--muted);
+        font-size: 12.5px;
+        margin-top: 2px;
+        overflow-wrap: anywhere;
+      }
+      li[data-state="failed"] .det {
+        color: var(--err);
+      }
+      .steps .sp {
+        width: 11px;
+        height: 11px;
+        border: 2px solid var(--brand);
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: sp 0.7s linear infinite;
+      }
+      h2 {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin: 0 0 14px;
+        font-weight: 650;
+      }
+      details {
+        margin-top: 14px;
+        font-size: 13px;
+      }
+      summary {
+        cursor: pointer;
+        color: var(--muted);
+        font-weight: 550;
+      }
+      pre {
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 12px;
+        overflow: auto;
+        max-height: 280px;
+        font-size: 12px;
+        margin: 10px 0 0;
+      }
+      .hide {
+        display: none !important;
+      }
+      .sr {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <h1>Build Inspection Form in Maximo</h1>
+        <p class="sub" id="tagline"></p>
+      </header>
+
+      <section class="card">
+        <div
+          id="dz"
+          class="dz"
+          role="button"
+          tabindex="0"
+          aria-label="Choose a form document to upload, or drop one here"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" />
+            <path d="M3 15v3a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-3" />
+          </svg>
+          <b>Drop your form document here</b>
+          <span class="sub">or <span class="link">browse files</span></span>
+          <small id="dzHint"></small>
+          <input
+            id="fileInput"
+            type="file"
+            class="sr"
+            aria-describedby="dzHint"
+          />
+        </div>
+
+        <div id="fileBox" class="file hide">
+          <div class="ext" id="fileExt">?</div>
+          <div class="meta">
+            <div class="nm" id="fileName"></div>
+            <div class="sz" id="fileSize"></div>
+          </div>
+          <button
+            id="clearFile"
+            class="x"
+            type="button"
+            aria-label="Remove selected file"
+          >
+            &times;
+          </button>
+        </div>
+
+        <div id="fileMsg" class="msg err hide" role="alert"></div>
+
+        <div class="actions">
+          <button id="submitBtn" class="primary" type="button" disabled>
+            Upload form
+          </button>
+        </div>
+      </section>
+
+      <section id="progressCard" class="card hide">
+        <h2>Progress</h2>
+        <ul class="steps" id="steps"></ul>
+        <div
+          id="resultMsg"
+          class="msg hide"
+          role="status"
+          aria-live="polite"
+        ></div>
+        <details id="respBox" class="hide">
+          <summary>View API responses</summary>
+          <pre id="respJson"></pre>
+        </details>
+        <div class="actions hide" id="doneActions">
+          <button id="returnBtn" class="primary hide" type="button">
+            Return to Maximo
+          </button>
+          <button id="againBtn" class="ghost" type="button">
+            Upload another document
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      /* Helper for Maximo basic / maxauth headers:  maxauth: b64("wilson:wilson") */
+      const b64 = (s) => btoa(s);
+
+      /* =============================================================================
+   CONFIG — the only part you need to edit.
+   ========================================================================== */
+      const CONFIG = {
+        /* ---- Workflow switch ------------------------------------------------------
+     "digitise-only"        1 call.  The UI posts the file to the digitisation
+                            service and stops. That service writes to Maximo
+                            itself, server-to-server. Nothing Maximo-related
+                            touches the browser. USE THIS FOR THE DEMO.
+
+     "digitise-then-maximo" 2 calls. The UI posts the file, then the browser
+                            itself calls Maximo with the result. Requires a
+                            Maximo credential in this file and CORS enabled on
+                            the Maximo server.
+  -------------------------------------------------------------------------- */
+        workflow: "digitise-then-maximo",
+
+        /* Where the "Return to Maximo" button goes. Leave "" to just close the tab
+     (works when Maximo opened this page with window.open / launch-in-context). */
+        returnUrl: "",
+
+        /* Abort any call after this many ms. */
+        timeoutMs: 60000,
+
+        /* ---- File validation ---------------------------------------------------- */
+        validation: {
+          /* PDF, Word, Excel and images. Add "tif","tiff","heic" if scanners or
+       iPhones are in play — they are common for photographed forms. */
+          allowedExtensions: [
+            "pdf",
+            "doc",
+            "docx",
+            "xls",
+            "xlsx",
+            "png",
+            "jpg",
+            "jpeg",
+          ],
+          /* Friendly one-liner under the dropzone. Set to "" to auto-list every
+       extension above instead. */
+          hint: "PDF, Word, Excel or image",
+          /* MIME is advisory only — browsers report it inconsistently. Leave empty
+       to validate on extension + size alone. */
+          allowedMimeTypes: [],
+          maxSizeMb: 20,
+          rejectEmptyFiles: true,
+        },
+
+        /* ---- API 1: digitisation service, via the local proxy -------------------
+     Same-origin, so no CORS. api/upload.js forwards the multipart body to the
+     digitiser with the X-API-Key attached.
+     Real host, path and key live in api/upload.js. ------------------------- */
+        api1: {
+          label: "Upload and digitise document",
+          baseUrl: "", // same origin — no CORS
+          path: "/api/upload",
+          method: "POST",
+          fileFieldName: "source_file", // form-data key holding the file
+          extraFormFields: {}, // any additional form-data fields
+          headers: {},
+          /* Do NOT set Content-Type. The browser must generate the multipart
+         boundary itself; the proxy forwards it verbatim. */
+        },
+
+        /* ---- API 2: Maximo create, via the local proxy ---------------------------
+     Maximo's CORS allowlist only admits the IBM Maximo Mobile app's origin, so
+     a browser can never call it directly. api/maximo.js makes the call
+     server-side, where CORS does not apply.
+
+     Real host, path, maxauth and properties header live in api/maximo.js. --- */
+        api2: {
+          label: "Build inspection form in Maximo",
+          baseUrl: "", // same origin — no CORS
+          path: "/api/maximo",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            /* No credential here. maxauth is attached by the proxy.
+         The Cookie header can also be added there if Maximo needs
+         JSESSIONIDUIMANAGE — servers may set Cookie, browsers may not. */
+          },
+
+          credentials: "omit",
+
+          /* Empty = do not extract anything from API 1's response; the whole
+       response is forwarded as the request body (see buildBody). Set to a dot
+       path like "document_id" only if you need to pull one value out. */
+          idPath: "",
+          requireId: false,
+
+          /* Field in API 2's response to show on success, if present. */
+          resultPath: "inspformnum",
+
+          /* API 1's response IS API 2's request body, passed through verbatim.
+       NOTE: this includes inspcascadeoption[] with srcfield/tgtfield/etc as
+       CRC32 hashes of description text (see app/core/crc.py), not real
+       Maximo inspfieldnum/inspquestionnum — those don't exist yet. If Maximo
+       validates those as real foreign keys on create, this call may reject
+       the cascade rows (or the whole request). API 3 below is what fixes the
+       hashes up to real numbers; if API 2 turns out to choke on the bogus
+       FKs, strip inspcascadeoption here and let API 3 add it back instead. */
+          buildBody: (r1, id, file) => r1,
+        },
+
+        /* ---- API 3: remap inspcascadeoption[] to real Maximo numbers -------------
+     API 1's cascade entries reference fields/questions by CRC32(description)
+     (a stable placeholder — real numbers don't exist before creation). API 2
+     just created the record, so its response now has the real
+     inspquestionnum/inspfieldnum next to those same description strings.
+     This step recomputes the same CRC32 over every description in API 2's
+     response, uses it to translate each cascade's src/tgt ids to real
+     numbers, and PATCHes the corrected inspcascadeoption[] onto the record
+     API 2 just created (via its own href, not a reconstructed URL). --------- */
+        api3: {
+          label: "Map inspection cascade options",
+          /* Goes through the same proxy. The record id from API 2's response is
+       passed as ?id=, and api/maximo.js turns that into
+       {maximoBase}/api/os/mxapiinspform/{id}?ignorecollectionref=1&lean=1
+       and attaches maxauth + properties + patchtype: MERGE.
+
+       NOTE: the original version sent APIKEY: "" here and no maxauth, so this
+       step was unauthenticated and would have failed with 401 even if CORS had
+       allowed it. The proxy now applies the same credential as API 2. */
+          urlFromResponse: (r2) => {
+            const id = dotGet(r2, "member.0.inspectionformid");
+            if (id == null) return null;
+            return `/api/maximo?id=${encodeURIComponent(id)}`;
+          },
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            /* patchtype: MERGE is added by the proxy, so only
+         inspcascadeoption[] is touched. Same-origin, so PATCH needs no
+         preflight and no CORS allowance. */
+          },
+          credentials: "omit",
+        },
+      };
+      /* ======================= end of config ===================================== */
+
+      const TWO_STEP = CONFIG.workflow === "digitise-then-maximo";
+
+      const $ = (id) => document.getElementById(id);
+      const el = {
+        dz: $("dz"),
+        input: $("fileInput"),
+        hint: $("dzHint"),
+        tagline: $("tagline"),
+        box: $("fileBox"),
+        name: $("fileName"),
+        size: $("fileSize"),
+        ext: $("fileExt"),
+        clear: $("clearFile"),
+        fileMsg: $("fileMsg"),
+        submit: $("submitBtn"),
+        progress: $("progressCard"),
+        steps: $("steps"),
+        result: $("resultMsg"),
+        respBox: $("respBox"),
+        respJson: $("respJson"),
+        doneActions: $("doneActions"),
+        returnBtn: $("returnBtn"),
+        againBtn: $("againBtn"),
+      };
+
+      let selected = null;
+      let busy = false;
+
+      /* ---------- helpers -------------------------------------------------------- */
+      const extOf = (n) => (n.split(".").pop() || "").toLowerCase();
+      const fmtSize = (b) => {
+        if (b < 1024) return b + " B";
+        if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+        return (b / 1048576).toFixed(2) + " MB";
+      };
+      const dotGet = (obj, path) =>
+        String(path || "")
+          .split(".")
+          .filter(Boolean)
+          .reduce(
+            (o, k) =>
+              o == null ? undefined : o[Array.isArray(o) ? Number(k) : k],
+            obj,
+          );
+
+      /* ---------- CRC32 (matches Python's zlib.crc32, see app/core/crc.py) ------- */
+      const CRC_TABLE = (() => {
+        const table = new Array(256);
+        for (let n = 0; n < 256; n++) {
+          let c = n;
+          for (let k = 0; k < 8; k++)
+            c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+          table[n] = c >>> 0;
+        }
+        return table;
+      })();
+      function crc32(str) {
+        let crc = 0xffffffff;
+        const bytes = new TextEncoder().encode(String(str));
+        for (let i = 0; i < bytes.length; i++)
+          crc = CRC_TABLE[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+        return (crc ^ 0xffffffff) >>> 0;
+      }
+
+      /* ---------- inspcascadeoption remap (CRC32 hash -> real Maximo number) ---- */
+      function collectRealIds(api2Resp) {
+        const form = dotGet(api2Resp, "member.0");
+        const byQuestion = new Map(); // crc32(group/question description) -> inspquestionnum
+        const byField = new Map(); // crc32(field description) -> inspfieldnum
+        (form?.inspquestion || []).forEach((q) => {
+          if (q.description != null && q.inspquestionnum != null)
+            byQuestion.set(String(crc32(q.description)), String(q.inspquestionnum));
+          (q.inspfield || []).forEach((f) => {
+            if (f.description != null && f.inspfieldnum != null)
+              byField.set(String(crc32(f.description)), String(f.inspfieldnum));
+          });
+        });
+        return { byQuestion, byField };
+      }
+
+      function mapCascadeOptions(api1Resp, api2Resp) {
+        const cascades = dotGet(api1Resp, "inspcascadeoption") || [];
+        const { byQuestion, byField } = collectRealIds(api2Resp);
+        console.group("[digitise] cascade remap");
+        log(
+          "known question hashes",
+          Object.fromEntries(byQuestion),
+          "known field hashes",
+          Object.fromEntries(byField),
+        );
+        const unresolved = [];
+        const mapped = cascades.map((c, i) => {
+          const srcquestion = byQuestion.get(String(c.srcquestion));
+          const tgtquestion = byQuestion.get(String(c.tgtquestion));
+          const srcfield = byField.get(String(c.srcfield));
+          const tgtfield = byField.get(String(c.tgtfield));
+          const result = { ...c, srcquestion, tgtquestion, srcfield, tgtfield };
+          if (!srcquestion || !tgtquestion || !srcfield || !tgtfield) {
+            unresolved.push(i);
+            log(`cascade[${i}] UNRESOLVED`, { from: c, to: result });
+          } else {
+            log(`cascade[${i}] ok`, { from: c, to: result });
+          }
+          return result;
+        });
+        console.groupEnd();
+        return { mapped, unresolved };
+      }
+
+      /* ---------- static text ---------------------------------------------------- */
+      const v = CONFIG.validation;
+      const extList = v.allowedExtensions.map((e) => "." + e).join(", ");
+      el.hint.textContent = `Accepted: ${v.hint || extList} · max ${v.maxSizeMb} MB`;
+      el.hint.title = extList;
+      el.input.accept = v.allowedExtensions
+        .map((e) => "." + e)
+        .concat(v.allowedMimeTypes || [])
+        .join(",");
+      el.tagline.textContent = TWO_STEP
+        ? "Upload your form document. It is digitised, then used to build the inspection form in Maximo."
+        : "Upload your form document. It is digitised and used to build the inspection form in Maximo.";
+
+      /* ---------- file validation ------------------------------------------------ */
+      function validate(file) {
+        if (!file) return "No file selected.";
+        const ext = extOf(file.name);
+        if (!ext)
+          return "That file has no extension, so the type cannot be determined.";
+        if (!v.allowedExtensions.includes(ext))
+          return `.${ext} files are not supported. Please upload a ${v.hint || extList} file (${extList}).`;
+        if (
+          v.allowedMimeTypes &&
+          v.allowedMimeTypes.length &&
+          file.type &&
+          !v.allowedMimeTypes.includes(file.type)
+        )
+          return `The file's content type (${file.type}) is not accepted.`;
+        if (v.rejectEmptyFiles && file.size === 0)
+          return "That file is empty (0 bytes).";
+        if (file.size > v.maxSizeMb * 1048576)
+          return `File is ${fmtSize(file.size)}. The limit is ${v.maxSizeMb} MB.`;
+        return null;
+      }
+
+      function showFileError(msg) {
+        el.fileMsg.innerHTML = '<span class="ic">!</span><span></span>';
+        el.fileMsg.lastElementChild.textContent = msg;
+        el.fileMsg.classList.remove("hide");
+      }
+      const hideFileError = () => el.fileMsg.classList.add("hide");
+
+      function setFile(file) {
+        resetRun();
+        const err = validate(file);
+        if (err) {
+          selected = null;
+          el.box.classList.add("hide");
+          el.dz.classList.remove("hide");
+          el.submit.disabled = true;
+          showFileError(err);
+          return;
+        }
+        hideFileError();
+        selected = file;
+        el.name.textContent = file.name;
+        el.name.title = file.name;
+        el.size.textContent =
+          fmtSize(file.size) + (file.type ? " · " + file.type : "");
+        el.ext.textContent = extOf(file.name);
+        el.box.classList.remove("hide");
+        el.dz.classList.add("hide");
+        el.submit.disabled = false;
+      }
+
+      function clearFile() {
+        selected = null;
+        el.input.value = "";
+        el.box.classList.add("hide");
+        el.dz.classList.remove("hide");
+        el.submit.disabled = true;
+        hideFileError();
+      }
+
+      /* ---------- dropzone wiring ------------------------------------------------ */
+      el.dz.addEventListener("click", () => {
+        if (!busy) el.input.click();
+      });
+      el.dz.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          if (!busy) el.input.click();
+        }
+      });
+      el.input.addEventListener("change", (e) => {
+        if (e.target.files[0]) setFile(e.target.files[0]);
+      });
+      ["dragenter", "dragover"].forEach((t) =>
+        el.dz.addEventListener(t, (e) => {
+          e.preventDefault();
+          if (!busy) el.dz.classList.add("drag");
+        }),
+      );
+      ["dragleave", "drop"].forEach((t) =>
+        el.dz.addEventListener(t, (e) => {
+          e.preventDefault();
+          el.dz.classList.remove("drag");
+        }),
+      );
+      el.dz.addEventListener("drop", (e) => {
+        if (busy) return;
+        const f = e.dataTransfer.files;
+        if (!f || !f.length) return;
+        if (f.length > 1) {
+          showFileError("Please drop one file at a time.");
+          return;
+        }
+        setFile(f[0]);
+      });
+      window.addEventListener("dragover", (e) => e.preventDefault());
+      window.addEventListener("drop", (e) => e.preventDefault());
+      el.clear.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!busy) clearFile();
+      });
+
+      /* ---------- step UI -------------------------------------------------------- */
+      const STEPS = [
+        { key: "validate", label: "Check document" },
+        { key: "api1", label: CONFIG.api1.label },
+      ];
+      if (TWO_STEP) {
+        STEPS.push({ key: "api2", label: CONFIG.api2.label });
+        STEPS.push({ key: "api3", label: CONFIG.api3.label });
+      }
+      const API_STEPS = STEPS.filter((s) => s.key !== "validate").map(
+        (s) => s.key,
+      );
+
+      function renderSteps() {
+        el.steps.innerHTML = "";
+        STEPS.forEach((s, i) => {
+          const li = document.createElement("li");
+          li.id = "step-" + s.key;
+          li.dataset.state = "pending";
+          li.innerHTML = `<span class="dot" aria-hidden="true">${i + 1}</span>
+       <div><div class="lbl"></div><div class="det"></div></div>`;
+          li.querySelector(".lbl").textContent = s.label;
+          el.steps.appendChild(li);
+        });
+      }
+
+      function setStep(key, state, detail) {
+        const li = $("step-" + key);
+        if (!li) return;
+        li.dataset.state = state;
+        const dot = li.querySelector(".dot");
+        const idx = STEPS.findIndex((s) => s.key === key) + 1;
+        if (state === "running") dot.innerHTML = '<span class="sp"></span>';
+        else if (state === "done") dot.textContent = "✓";
+        else if (state === "failed") dot.textContent = "✕";
+        else dot.textContent = String(idx);
+        li.querySelector(".det").textContent = detail || "";
+      }
+
+      function banner(kind, text) {
+        el.result.className = "msg " + kind;
+        el.result.innerHTML = '<span class="ic"></span><span></span>';
+        el.result.firstElementChild.textContent = kind === "ok" ? "✓" : "!";
+        el.result.lastElementChild.textContent = text;
+        el.result.classList.remove("hide");
+      }
+
+      function resetRun() {
+        el.progress.classList.add("hide");
+        el.result.classList.add("hide");
+        el.respBox.classList.add("hide");
+        el.doneActions.classList.add("hide");
+        el.respJson.textContent = "";
+        el.steps.innerHTML = "";
+      }
+
+      function setBusy(on) {
+        busy = on;
+        el.submit.disabled = on || !selected;
+        el.clear.disabled = on;
+        el.submit.innerHTML = on
+          ? '<span class="spin" aria-hidden="true"></span>Uploading…'
+          : "Upload form";
+      }
+
+      /* ---------- debug logging ---------------------------------------------------
+   Everything goes through console.group tagged "[digitise]" — filter the
+   console on that string to follow one run end to end. ------------------- */
+      const log = (...a) => console.log("[digitise]", ...a);
+
+      /* ---------- HTTP ----------------------------------------------------------- */
+      async function call(spec, body, urlOverride) {
+        const url =
+          urlOverride ||
+          String(spec.baseUrl || "").replace(/\/+$/, "") + spec.path;
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort("timeout"), CONFIG.timeoutMs);
+
+        console.group(`[digitise] ${spec.method || "POST"} ${url}`);
+        log("headers", spec.headers || {});
+        log(
+          "body",
+          body instanceof FormData
+            ? [...body.entries()].map(([k, v]) =>
+                v instanceof File ? [k, `File(${v.name}, ${v.size}b)`] : [k, v],
+              )
+            : body,
+        );
+
+        let res;
+        try {
+          res = await fetch(url, {
+            method: spec.method || "POST",
+            headers: { ...(spec.headers || {}) },
+            credentials: spec.credentials || "omit",
+            body,
+            signal: ctrl.signal,
+          });
+        } catch (e) {
+          clearTimeout(timer);
+          log("network error", e);
+          console.groupEnd();
+          if (ctrl.signal.aborted)
+            throw new Error(
+              `Timed out after ${Math.round(CONFIG.timeoutMs / 1000)}s. The server did not respond.`,
+            );
+          throw new Error(
+            `Cannot reach ${url}. Check the host is up, the URL is right, and that CORS allows this page.`,
+          );
+        }
+        clearTimeout(timer);
+
+        const raw = await res.text();
+        let data = raw;
+        try {
+          data = raw ? JSON.parse(raw) : null;
+        } catch (_) {
+          /* keep as text */
+        }
+        log("status", res.status, res.statusText);
+        log("response", data);
+        console.groupEnd();
+
+        if (!res.ok) {
+          const detail =
+            (data &&
+              (data.detail ||
+                data.message ||
+                data.Error?.message ||
+                data.error?.message ||
+                data.error)) ||
+            (typeof data === "string" ? data.slice(0, 300) : "");
+          throw new Error(
+            `HTTP ${res.status} ${res.statusText}${detail ? " — " + (typeof detail === "string" ? detail : JSON.stringify(detail)) : ""}`,
+          );
+        }
+        return data;
+      }
+
+      /* ---------- submit workflow ------------------------------------------------ */
+      el.submit.addEventListener("click", async () => {
+        if (busy) return;
+
+        const err = validate(selected);
+        resetRun();
+        renderSteps();
+        el.progress.classList.remove("hide");
+
+        if (err) {
+          setStep("validate", "failed", err);
+          API_STEPS.forEach((k) => setStep(k, "skipped", "Skipped"));
+          banner("err", "Fix the document and try again.");
+          showFileError(err);
+          return;
+        }
+
+        hideFileError();
+        setStep(
+          "validate",
+          "done",
+          `${selected.name} · ${fmtSize(selected.size)}`,
+        );
+        setBusy(true);
+
+        const out = {};
+        log(`--- run start: ${selected.name} (${TWO_STEP ? "3-step" : "1-step"} workflow) ---`);
+        try {
+          /* --- API 1: digitisation service --- */
+          setStep("api1", "running", "Sending file…");
+          const fd = new FormData();
+          fd.append(CONFIG.api1.fileFieldName, selected, selected.name);
+          Object.entries(CONFIG.api1.extraFormFields || {}).forEach(
+            ([k, val]) => fd.append(k, val),
+          );
+          out.api1 = await call(CONFIG.api1, fd);
+
+          if (!TWO_STEP) {
+            setStep("api1", "done", "Digitised and sent to Maximo");
+            banner(
+              "ok",
+              "Document uploaded. The inspection form is being built in Maximo.",
+            );
+          } else {
+            const hasIdPath = !!CONFIG.api2.idPath;
+            const id = hasIdPath
+              ? dotGet(out.api1, CONFIG.api2.idPath)
+              : undefined;
+            if (
+              hasIdPath &&
+              CONFIG.api2.requireId &&
+              (id === undefined || id === null || id === "")
+            )
+              throw new Error(
+                `Upload succeeded but "${CONFIG.api2.idPath}" was missing from the response, so the Maximo step cannot run.`,
+              );
+            setStep(
+              "api1",
+              "done",
+              hasIdPath && id != null
+                ? `${CONFIG.api2.idPath}: ${id}`
+                : "Digitised",
+            );
+
+            /* --- API 2: Maximo. API 1's response is the request body. --- */
+            setStep("api2", "running", "Building form…");
+            const payload = CONFIG.api2.buildBody(out.api1, id, selected);
+            if (payload === undefined || payload === null)
+              throw new Error(
+                "API 1 returned no body, so there is nothing to send to Maximo.",
+              );
+            out.api2 = await call(CONFIG.api2, JSON.stringify(payload));
+            const num = CONFIG.api2.resultPath
+              ? (dotGet(out.api2, CONFIG.api2.resultPath) ??
+                dotGet(out.api2, "member.0." + CONFIG.api2.resultPath))
+              : undefined;
+            setStep(
+              "api2",
+              "done",
+              num != null
+                ? `${CONFIG.api2.resultPath}: ${num}`
+                : "Inspection form created",
+            );
+
+            /* --- API 3: remap inspcascadeoption[] to real Maximo numbers, then
+         PATCH them onto the record API 2 just created. --- */
+            setStep("api3", "running", "Mapping cascade options…");
+            const cascadeCount = (dotGet(out.api1, "inspcascadeoption") || [])
+              .length;
+            log(`api3: ${cascadeCount} cascade option(s) from api1`);
+            if (!cascadeCount) {
+              setStep("api3", "skipped", "No cascade options to map");
+            } else {
+              const { mapped, unresolved } = mapCascadeOptions(
+                out.api1,
+                out.api2,
+              );
+              if (unresolved.length)
+                throw new Error(
+                  `${unresolved.length} of ${cascadeCount} cascade option(s) could not be matched to a field/question Maximo just created — check that descriptions match exactly.`,
+                );
+              const recordUrl = CONFIG.api3.urlFromResponse(out.api2);
+              log("api3 target url", recordUrl);
+              if (!recordUrl)
+                throw new Error(
+                  "API 2's response had no inspectionformid, so the cascade options cannot be PATCHed onto it.",
+                );
+              out.api3 = await call(
+                CONFIG.api3,
+                JSON.stringify({ inspcascadeoption: mapped }),
+                recordUrl,
+              );
+              setStep(
+                "api3",
+                "done",
+                `${mapped.length} cascade option(s) mapped`,
+              );
+            }
+            banner("ok", "Inspection form built in Maximo successfully.");
+          }
+
+          log("--- run done: success ---", out);
+          el.doneActions.classList.remove("hide");
+          if (CONFIG.returnUrl || window.opener)
+            el.returnBtn.classList.remove("hide");
+        } catch (e) {
+          console.error("[digitise] --- run failed ---", e, out);
+          API_STEPS.forEach((k) => {
+            const li = $("step-" + k);
+            if (li.dataset.state === "running") setStep(k, "failed", e.message);
+            else if (li.dataset.state === "pending")
+              setStep(k, "skipped", "Not run");
+          });
+          banner("err", "Submission failed. Nothing further was sent.");
+          out.error = e.message;
+          el.doneActions.classList.remove("hide");
+        } finally {
+          setBusy(false);
+          if (Object.keys(out).length) {
+            el.respJson.textContent = JSON.stringify(out, null, 2);
+            el.respBox.classList.remove("hide");
+          }
+        }
+      });
+
+      /* ---------- post-run actions ----------------------------------------------- */
+      el.againBtn.addEventListener("click", () => {
+        if (busy) return;
+        clearFile();
+        resetRun();
+      });
+
+      el.returnBtn.addEventListener("click", () => {
+        if (CONFIG.returnUrl) {
+          window.location.href = CONFIG.returnUrl;
+          return;
+        }
+        window.close();
+        setTimeout(
+          () =>
+            banner(
+              "warn",
+              "This tab could not close itself. Close it to return to Maximo.",
+            ),
+          400,
+        );
+      });
+    </script>
+  </body>
+</html>

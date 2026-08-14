@@ -1,0 +1,19 @@
+# Secrets — never commit these
+.env
+.env.local
+.env.*.local
+
+# Vercel
+.vercel/
+
+# Node
+node_modules/
+
+# OS / editor noise
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+
+# Logs
+*.log
