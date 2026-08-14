@@ -402,6 +402,8 @@
         <p class="sub" id="tagline"></p>
       </header>
 
+      <div id="configMsg" class="msg err hide" role="alert"></div>
+
       <section class="card">
         <div
           id="dz"
@@ -550,11 +552,15 @@
      Set sendRawBody: false to have the browser build the FormData instead —
      that works locally but breaks when deployed.
 
-     Real host, path, field name and key live in api/upload.js. ------------- */
+     ⚠ `path` below is a route on THIS app, served by api/upload.js. It is NOT
+     the digitiser's path. Putting the upstream path here makes the browser
+     request it from your own domain, which 404s. The digitiser's real path
+     (/api/v1/form-digitisation/upload/mock?target_format=maximo) is set via
+     DIGITISE_PATH in api/upload.js. ---------------------------------------- */
         api1: {
           label: "Upload and digitise document",
           baseUrl: "", // same origin — no CORS
-          path: "/api/v1/form-digitisation/upload/mock?target_format=maximo",
+          path: "/api/upload", // ← this app's proxy route. Not the digitiser's.
           method: "POST",
           sendRawBody: true,
           fileFieldName: "source_file", // only used when sendRawBody is false
@@ -567,16 +573,19 @@
      a browser can never call it directly. api/maximo.js makes the call
      server-side, where CORS does not apply.
 
+     ⚠ Same rule as api1: `path` is a route on THIS app, served by
+     api/maximo.js. Not Maximo's path. Maximo's object-structure path
+     (/oslc/os/mxapiinspform or /api/os/mxapiinspform) is chosen inside
+     api/maximo.js, which probes both unless MAXIMO_OS_PATH pins one.
+
      Real host, path, maxauth and properties header live in api/maximo.js. --- */
         api2: {
           label: "Build inspection form in Maximo",
           baseUrl: "", // same origin — no CORS
-          path: "/oslc/os/mxapiinspform?ignorecollectionref=1&lean=1",
+          path: "/api/maximo", // ← this app's proxy route. Not Maximo's.
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-			properties: "*",
-			maxauth: "Sk9ITjpTZWRpbkAxMjM="
             /* No credential here. maxauth is attached by the proxy.
          The Cookie header can also be added there if Maximo needs
          JSESSIONIDUIMANAGE — servers may set Cookie, browsers may not. */
@@ -667,6 +676,70 @@
 
       let selected = null;
       let busy = false;
+
+      /* ---------- config sanity check ---------------------------------------------
+   Two mistakes have already happened in this file and both produced confusing
+   404s rather than an obvious error, so they are now checked at load time:
+
+     1. Putting an UPSTREAM path in api*.path. Those fields address this app's
+        own proxy routes (/api/upload, /api/maximo). Upstream paths belong in
+        api/*.js.
+     2. Putting a credential back into api*.headers. The proxies attach them
+        server-side; a credential here is exposed to every visitor and does
+        nothing.
+  ------------------------------------------------------------------------- */
+      const CONFIG_ERRORS = (() => {
+        const errs = [];
+        const checkRoute = (key, expected) => {
+          const spec = CONFIG[key];
+          if (!spec) return;
+          if (spec.baseUrl)
+            errs.push(
+              `CONFIG.${key}.baseUrl must be "" — the browser calls this app's own proxy. Got "${spec.baseUrl}".`,
+            );
+          /* Exact match, not a "/api/" prefix test: the mistake that actually
+             happened was pasting "/api/v1/form-digitisation/upload/mock",
+             which does start with "/api/" but is the digitiser's path. */
+          if ((spec.path || "").split("?")[0] !== expected)
+            errs.push(
+              `CONFIG.${key}.path must be exactly "${expected}" — this app's proxy route. Got "${spec.path}". That looks like an upstream path; those belong in api/*.js.`,
+            );
+        };
+        checkRoute("api1", "/api/upload");
+        if (TWO_STEP) checkRoute("api2", "/api/maximo");
+
+        const CREDS = [
+          "maxauth",
+          "apikey",
+          "x-api-key",
+          "authorization",
+          "cookie",
+        ];
+        ["api1", "api2", "api3"].forEach((key) => {
+          const h = (CONFIG[key] || {}).headers || {};
+          Object.keys(h).forEach((name) => {
+            if (CREDS.includes(name.toLowerCase()))
+              errs.push(
+                `CONFIG.${key}.headers contains "${name}". Credentials must not be in this file — the proxy attaches them. Remove it.`,
+              );
+          });
+        });
+        return errs;
+      })();
+
+      if (CONFIG_ERRORS.length) {
+        const box = $("configMsg");
+        box.innerHTML =
+          '<span class="ic">!</span><span><b>This page is misconfigured and will not work.</b><ul style="margin:6px 0 0;padding-left:18px"></ul></span>';
+        const ul = box.querySelector("ul");
+        CONFIG_ERRORS.forEach((m) => {
+          const li = document.createElement("li");
+          li.textContent = m;
+          ul.appendChild(li);
+        });
+        box.classList.remove("hide");
+        console.error("[digitise] CONFIG errors", CONFIG_ERRORS);
+      }
 
       /* ---------- helpers -------------------------------------------------------- */
       const extOf = (n) => (n.split(".").pop() || "").toLowerCase();
@@ -1009,6 +1082,12 @@
       /* ---------- submit workflow ------------------------------------------------ */
       el.submit.addEventListener("click", async () => {
         if (busy) return;
+        if (CONFIG_ERRORS.length) {
+          resetRun();
+          banner("err", "Fix the configuration errors listed at the top of the page first.");
+          el.progress.classList.remove("hide");
+          return;
+        }
 
         const err = validate(selected);
         resetRun();

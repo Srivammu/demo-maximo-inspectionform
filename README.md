@@ -98,6 +98,38 @@ that. Proxying removes the problem instead of fighting it:
   server may send `Cookie`, a browser may not.
 - No mixed-content issue: the page is `http`, the `https` calls are server-side.
 
+## The two fields people keep breaking
+
+`CONFIG.api1.path` and `CONFIG.api2.path` are routes on **this app** —
+`/api/upload` and `/api/maximo`. They are not the upstream paths. Pasting an
+upstream path there makes the browser request it from your own domain, which
+returns **404** with no hint about why.
+
+Upstream paths live in the proxy files:
+
+| Where | Setting |
+|---|---|
+| `api/upload.js` | `DIGITISE_PATH` — `/api/v1/form-digitisation/upload/mock?target_format=maximo` |
+| `api/maximo.js` | `MAXIMO_OS_PATH` — `/oslc/os/mxapiinspform` or `/api/os/mxapiinspform` |
+
+Same for credentials: `maxauth`, `APIKEY` and `X-API-Key` must **not** appear in
+`index.html`. The proxies attach them server-side. A credential in the page is
+readable by every visitor and changes nothing about the request.
+
+Both mistakes are now caught at page load. `index.html` runs a config check and,
+if either rule is violated, shows a red banner naming the exact field and refuses
+to send anything. Verified: with a bad path or a stray `maxauth`, zero requests
+leave the page.
+
+## Which Maximo OS path? It probes
+
+Maximo exposes object structures under both `/oslc/os/...` and `/api/os/...`, and
+which one answers varies by instance. `api/maximo.js` tries
+`/oslc/os/mxapiinspform` first, falls back to `/api/os/mxapiinspform` on a `404`,
+and reports the winner in the `X-Maximo-Path` response header — visible in
+DevTools → Network → the `/api/maximo` request. Set `MAXIMO_OS_PATH` to pin it and
+skip the probe.
+
 ## Bugs fixed along the way
 
 1. **The PATCH was unauthenticated.** `api3.headers` sent `APIKEY: ""` and no
