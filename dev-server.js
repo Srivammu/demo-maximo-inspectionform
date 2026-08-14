@@ -135,7 +135,7 @@ server.listen(PORT, () => {
   console.log(`\n  Inspection form UI running:  http://localhost:${PORT}\n`);
   console.log(`  digitiser      : https://dev-mms.eam360.com/digitiser`);
   console.log(`  Maximo         : https://demo.eam360.com/maxrest`);
-  console.log(`  Maximo auth    : maxauth`);
+  console.log(`  Maximo auth    : maxauth`);  
   console.log(`\n  All three API calls are proxied through this server, so the`);
   console.log(`  browser makes same-origin requests only — no CORS anywhere.`);
   console.log(`\n  Ctrl+C to stop.\n`);

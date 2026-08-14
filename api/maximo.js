@@ -18,6 +18,7 @@ const OS_PATH = "/oslc/os/mxapiinspform";
 const MAXAUTH = "Sk9ITjpTZWRpbkAxMjM="; // base64 of "JOHN:Sedin@123"
 const TIMEOUT_MS = 120000;
 
+
 function authHeaders() {
   return { "properties": "*", "maxauth": MAXAUTH };
 }
