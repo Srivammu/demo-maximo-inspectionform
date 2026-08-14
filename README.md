@@ -41,19 +41,45 @@ the working hosts and credentials are in `api/`.
 
 Two Vercel-specific constraints are already handled in the code:
 
-**Vercel parses the request body before your function runs.** `bodyParser: false`
+**Vercel reads the request body before your function runs, and for binary content
+types it consumes the stream without populating `req.body`.** `bodyParser: false`
 is only honoured as an ESM `export const config`, which these CommonJS files
-cannot provide. That is why a browser-generated multipart body arrived empty and
-`/api/upload` returned `400 — no file received`. The browser now sends the file as
-**raw bytes** with its name in the query string, and `api/upload.js` builds the
-multipart itself. `getBytes()` accepts the body as `req.rawBody`, a pre-parsed
-`Buffer`, a string, or an intact stream, so it works on Vercel and locally
-without branching.
+cannot provide. So a browser-built multipart body arrives empty — and so does a
+raw binary body. Both produced `400 — no file bytes reached the server`.
+
+`application/json` is the one content type the runtime reliably parses into
+`req.body`, so that is the transport: the browser base64-encodes the file into a
+JSON envelope and `api/upload.js` decodes it and builds the multipart. Ugly, but
+it is the shape that actually survives.
+
+```js
+POST /api/upload
+{ "filename": "test.docx", "type": "application/…", "size": 13004,
+  "dataBase64": "UEsDBB…" }
+```
+
+`resolveUpload()` still accepts a raw `Buffer`, a JSON string, an unparsed raw
+JSON body, or an intact stream, and reports which route it used in the
+`X-Upload-Via` response header — so this works unchanged locally, and a future
+body-handling surprise is diagnosable from the response instead of guesswork.
+Switch `CONFIG.api1.transport` to `"raw"` or `"multipart"` if you ever want the
+older shapes; both work locally and both fail on Vercel.
 
 **Vercel rejects request bodies over 4.5 MB** at the platform level, before the
-function runs — you would get an opaque `413`. `validation.maxSizeMb` is therefore
-`4`, so oversized files are refused in the browser with a clear message. Raise it
-if you only ever run locally.
+function runs — an opaque `413`. Base64 inflates a file by about a third, so
+`validation.maxSizeMb` is `3`: roughly 4 MB on the wire. Oversized files are
+refused in the browser with a clear message. Raise it if you only ever run
+locally.
+
+### Reproducing deployed behaviour locally
+
+```
+SIMULATE_VERCEL=1 node dev-server.js
+```
+
+This makes `dev-server.js` behave like the deployed runtime — body already
+consumed, no `req.rawBody`, `req.body` only for JSON. If an upload works under
+this flag it will work deployed. Every test below was run both ways.
 
 ## The flow
 
@@ -61,8 +87,8 @@ if you only ever run locally.
                     browser                           proxy                    upstream
 1  validate         local file checks                       —                      —
 2  digitise         POST /api/upload      ──► api/upload.js  ──► POST {digitiser}/api/v1/form-digitisation
-                    ?filename=…&type=…        builds the           /upload/mock?target_format=maximo
-                    body = raw file bytes     multipart here        + X-API-Key
+                    body = JSON with the      decodes base64,      /upload/mock?target_format=maximo
+                    file as dataBase64        builds multipart      + X-API-Key
 3  create           POST /api/maximo      ──► api/maximo.js  ──► POST {maximo}/api/os/mxapiinspform
                     body = step 2's response verbatim              ?ignorecollectionref=1&lean=1
                                                                     + maxauth + properties: *
@@ -136,11 +162,17 @@ skip the probe.
    `maxauth`, so step 4 would have returned 401 even with CORS solved. Both
    Maximo calls now use the same credential, applied by the proxy.
 2. **`/api/upload` returned `400 — no file received` on Vercel.** Vercel consumed
-   and parsed the multipart body before the function ran. Fixed by sending raw
-   bytes and assembling the multipart server-side.
-3. **Binary uploads were corrupted.** An earlier `dev-server.js` buffered request
+   the request body before the function ran. First attempt (raw bytes) failed the
+   same way, because the runtime does not populate `req.body` for binary content
+   types either. Fixed by moving the file into a JSON envelope as base64.
+3. **The paths were edited to upstream values**, making the browser request
+   `/api/v1/form-digitisation/...` from its own domain — a bare `404`. Fixed, and
+   a load-time config check now catches it explicitly.
+4. **Binary uploads were corrupted.** An earlier `dev-server.js` buffered request
    bodies as a string. It now uses a Buffer, verified with a 300 KB PDF whose
    SHA-256 matches byte for byte at the digitiser.
+5. **The config check had a hole.** It tested that `api*.path` starts with
+   `/api/`, which `/api/v1/form-digitisation/...` does. Now an exact route match.
 
 ## Overriding hosts or credentials
 
@@ -171,10 +203,9 @@ repo.
 
 ## Verified
 
-Tested twice against mocked upstreams: once through `dev-server.js`, and once
-through a **Vercel runtime simulation** that drains and pre-parses the body and
-withholds `req.rawBody` — the exact condition that caused the `400` on the
-deployed site. Both pass identically.
+Every case below was run twice against mocked upstreams — once normally, and once
+with `SIMULATE_VERCEL=1`, which reproduces the deployed runtime that caused the
+`400`. Identical results both ways.
 
 - All four steps green; `inspformnum` and the mapped-cascade count shown.
 - Multipart assembled correctly by the proxy: `source_file` field, real filename,

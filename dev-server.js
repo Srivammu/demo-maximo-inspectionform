@@ -87,11 +87,23 @@ const server = http.createServer(async (req, res) => {
     }
 
     const raw = await readBody(req);
-    req.rawBody = raw;                       // Buffer — used by api/upload.js
     const ct = req.headers["content-type"] || "";
-    if (raw.length && ct.includes("application/json")) {
-      const text = raw.toString("utf8");
-      try { req.body = JSON.parse(text); } catch (_) { req.body = text; }
+
+    if (process.env.SIMULATE_VERCEL) {
+      /* Reproduce the deployed runtime: the body is already consumed, rawBody
+         does not exist, and req.body is only populated for JSON. Use this to
+         test that an upload will actually work once deployed:
+             SIMULATE_VERCEL=1 node dev-server.js                              */
+      if (raw.length && ct.includes("application/json")) {
+        const text = raw.toString("utf8");
+        try { req.body = JSON.parse(text); } catch (_) { req.body = text; }
+      }
+    } else {
+      req.rawBody = raw;                     // Buffer — used by api/upload.js
+      if (raw.length && ct.includes("application/json")) {
+        const text = raw.toString("utf8");
+        try { req.body = JSON.parse(text); } catch (_) { req.body = text; }
+      }
     }
 
     try {

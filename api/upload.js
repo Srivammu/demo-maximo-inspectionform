@@ -1,16 +1,22 @@
 /**
  * Proxy → digitisation service.
  *
- * The browser POSTs the file as a RAW BODY to /api/upload?filename=<name>.
- * This function builds the multipart/form-data itself (field `source_file`) and
- * forwards it to the digitiser with the X-API-Key attached.
+ * The browser POSTs JSON to /api/upload:
+ *     { "filename": "test.docx", "type": "application/...", "dataBase64": "..." }
+ * This decodes the base64, builds the multipart/form-data itself (field
+ * `source_file`), and forwards it to the digitiser with the X-API-Key attached.
  *
- * Why raw bytes instead of the browser sending multipart directly:
- * Vercel's Node runtime consumes and parses the request body before a function
- * runs, and `bodyParser: false` is only honoured as an ESM `export const config`.
- * With a raw body we do not care whether the runtime handed us a Buffer or left
- * the stream intact — both are handled below — and there is no boundary to
- * preserve, so nothing can corrupt the upload.
+ * Why base64-in-JSON rather than a raw or multipart body:
+ * Vercel's Node runtime reads the request body before a function runs.
+ * `bodyParser: false` is only honoured as an ESM `export const config`, which a
+ * CommonJS file cannot provide. For binary content types the runtime consumes the
+ * stream WITHOUT populating req.body, so both a browser-built multipart body and
+ * a raw binary body arrive empty. `application/json` is the one content type it
+ * reliably parses into req.body, so that is what we use. Every other shape is
+ * still accepted below, so this also works unchanged under `node dev-server.js`.
+ *
+ * Cost: base64 is ~33% larger than the file. Vercel rejects request bodies over
+ * 4.5 MB, so the practical file ceiling is ~3.3 MB. index.html caps at 3 MB.
  *
  * Env overrides (optional — the defaults are the working values):
  *   DIGITISE_BASE_URL   default https://dev-mms.eam360.com/digitiser
@@ -25,22 +31,12 @@ const DEFAULT_PATH = "/api/v1/form-digitisation/upload/mock?target_format=maximo
 const DEFAULT_FIELD = "source_file";
 const DEFAULT_KEY = "jT1pyUNC,ja==+gPk@KCh{qyEtAu3s.e";
 
-/* Kept for runtimes that do read it. Harmless where it is ignored. */
-module.exports.config = { api: { bodyParser: false } };
+module.exports.config = { api: { bodyParser: true } };
 
-/* Get the request bytes whatever the runtime did with them. */
-function getBytes(req) {
-  /* 1. dev-server.js sets this. */
-  if (req.rawBody) {
-    return Promise.resolve(Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.from(req.rawBody));
-  }
-  /* 2. Vercel parses the body first. For a binary content type it hands back a
-        Buffer; for text types, a string. latin1 is byte-preserving. */
-  if (req.body !== undefined && req.body !== null) {
-    if (Buffer.isBuffer(req.body)) return Promise.resolve(req.body);
-    if (typeof req.body === "string") return Promise.resolve(Buffer.from(req.body, "latin1"));
-  }
-  /* 3. Stream is still intact — read it. */
+const safeName = (n) =>
+  (String(n || "upload.bin").split(/[\\/]/).pop() || "upload.bin").slice(0, 200);
+
+function readStream(req) {
   if (req.readableEnded || req.complete || req.readable === false) {
     return Promise.resolve(Buffer.alloc(0));
   }
@@ -54,8 +50,62 @@ function getBytes(req) {
   });
 }
 
-const safeName = (n) =>
-  (String(n || "upload.bin").split(/[\\/]/).pop() || "upload.bin").slice(0, 200);
+/**
+ * Resolve the upload from whatever the runtime gave us.
+ * Returns { bytes, filename, type, via } — `via` is reported on failure so a
+ * body-handling problem is diagnosable from the response.
+ */
+async function resolveUpload(req, query) {
+  const qName = query.get("filename");
+  const qType = query.get("type");
+
+  /* 1. JSON envelope — the path the browser uses. */
+  const asEnvelope = (obj) => {
+    if (!obj || typeof obj !== "object" || typeof obj.dataBase64 !== "string") return null;
+    return {
+      bytes: Buffer.from(obj.dataBase64, "base64"),
+      filename: safeName(obj.filename || qName),
+      type: obj.type || qType || "application/octet-stream",
+      via: "json.dataBase64"
+    };
+  };
+
+  let hit = asEnvelope(req.body);
+  if (hit) return hit;
+
+  /* 2. JSON that arrived as a string. */
+  if (typeof req.body === "string" && req.body.trim().startsWith("{")) {
+    try {
+      hit = asEnvelope(JSON.parse(req.body));
+      if (hit) return { ...hit, via: "json-string.dataBase64" };
+    } catch (_) { /* fall through */ }
+  }
+
+  /* 3. Raw bytes, however they reached us. */
+  const raw =
+    (req.rawBody && (Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.from(req.rawBody))) ||
+    (Buffer.isBuffer(req.body) ? req.body : null) ||
+    (await readStream(req));
+
+  if (raw && raw.length) {
+    /* Could be a raw JSON envelope the runtime never parsed. */
+    const text = raw.subarray(0, 1).toString("latin1");
+    if (text === "{") {
+      try {
+        hit = asEnvelope(JSON.parse(raw.toString("utf8")));
+        if (hit) return { ...hit, via: "raw-json.dataBase64" };
+      } catch (_) { /* not JSON, treat as bytes */ }
+    }
+    return {
+      bytes: raw,
+      filename: safeName(qName),
+      type: qType || req.headers["content-type"] || "application/octet-stream",
+      via: "raw-bytes"
+    };
+  }
+
+  return { bytes: Buffer.alloc(0), filename: safeName(qName), type: qType, via: "nothing" };
+}
 
 module.exports = async (req, res) => {
   if (req.method === "OPTIONS") {
@@ -68,18 +118,22 @@ module.exports = async (req, res) => {
   }
 
   const query = new URL(req.url, "http://localhost").searchParams;
-  const filename = safeName(query.get("filename"));
-  const fileType = query.get("type") || req.headers["content-type"] || "application/octet-stream";
+  const { bytes, filename, type, via } = await resolveUpload(req, query);
 
-  const bytes = await getBytes(req);
   if (!bytes || bytes.length === 0) {
     return res.status(400).json({
       message: "Empty request body — no file bytes reached the server.",
       diagnostics: {
+        resolvedVia: via,
         hasRawBody: !!req.rawBody,
-        bodyType: req.body === undefined ? "undefined" : (Buffer.isBuffer(req.body) ? "Buffer" : typeof req.body),
-        contentLength: req.headers["content-length"] || null,
-        contentType: req.headers["content-type"] || null
+        bodyType: req.body === undefined
+          ? "undefined"
+          : (Buffer.isBuffer(req.body) ? "Buffer" : typeof req.body),
+        bodyKeys: req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)
+          ? Object.keys(req.body).slice(0, 10)
+          : null,
+        contentType: req.headers["content-type"] || null,
+        contentLength: req.headers["content-length"] || null
       }
     });
   }
@@ -91,10 +145,9 @@ module.exports = async (req, res) => {
   const timeoutMs = Number(process.env.UPSTREAM_TIMEOUT_MS || 120000);
   const target = base + path;
 
-  /* Build the multipart body here. fetch generates the boundary and the
-     matching Content-Type, so no header is set manually. */
+  /* fetch generates the boundary and the matching Content-Type. */
   const form = new FormData();
-  form.append(field, new Blob([bytes], { type: fileType }), filename);
+  form.append(field, new Blob([bytes], { type: type || "application/octet-stream" }), filename);
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -119,7 +172,8 @@ module.exports = async (req, res) => {
   clearTimeout(timer);
 
   const text = await upstream.text();
-  console.log(`  ↳ POST ${target} → ${upstream.status} | sent ${field}="${filename}" (${bytes.length} bytes)`);
+  console.log(`  ↳ POST ${target} → ${upstream.status} | ${field}="${filename}" ${bytes.length}b via ${via}`);
   res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/json");
+  res.setHeader("X-Upload-Via", via);
   return res.status(upstream.status).send(text);
 };

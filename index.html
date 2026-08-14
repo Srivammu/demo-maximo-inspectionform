@@ -532,25 +532,27 @@
           /* MIME is advisory only — browsers report it inconsistently. Leave empty
        to validate on extension + size alone. */
           allowedMimeTypes: [],
-          /* 4 MB, not 20: Vercel serverless functions reject request bodies
-         larger than 4.5 MB at the platform level, before our proxy runs — you
-         would get an opaque 413 instead of a clear message. Raise this if you
-         are only ever running locally with `node dev-server.js`. */
-          maxSizeMb: 4,
+          /* 3 MB, not 20. Vercel rejects request bodies over 4.5 MB at the
+         platform level, before our proxy runs, and base64 inflates the file by
+         about a third — so 3 MB of file is roughly 4 MB on the wire. Raise this
+         if you only ever run locally with `node dev-server.js`. */
+          maxSizeMb: 3,
           rejectEmptyFiles: true,
         },
 
         /* ---- API 1: digitisation service, via the local proxy -------------------
      Same-origin, so no CORS.
 
-     sendRawBody: the file is POSTed as raw bytes with its name in the query
-     string, and api/upload.js builds the multipart/form-data (field
-     source_file) server-side. This is deliberate: Vercel consumes and parses
-     the request body before a function runs, which destroyed a
-     browser-generated multipart body. Raw bytes survive any runtime.
-
-     Set sendRawBody: false to have the browser build the FormData instead —
-     that works locally but breaks when deployed.
+     transport: how the file gets to our own proxy.
+       "json-base64" (default) — the file is base64'd into a JSON body and
+            api/upload.js decodes it and builds the multipart. Ugly, but it is
+            the ONLY shape that survives Vercel: its runtime reads the request
+            body before the function runs, and for binary content types it
+            consumes the stream without populating req.body. Both a
+            browser-built multipart body and a raw binary body arrive empty.
+            application/json is the one content type it reliably parses.
+       "raw"        — POST the File as the body. Works locally, empty on Vercel.
+       "multipart"  — browser builds the FormData. Works locally, empty on Vercel.
 
      ⚠ `path` below is a route on THIS app, served by api/upload.js. It is NOT
      the digitiser's path. Putting the upstream path here makes the browser
@@ -562,9 +564,9 @@
           baseUrl: "", // same origin — no CORS
           path: "/api/upload", // ← this app's proxy route. Not the digitiser's.
           method: "POST",
-          sendRawBody: true,
-          fileFieldName: "source_file", // only used when sendRawBody is false
-          extraFormFields: {}, // only used when sendRawBody is false
+          transport: "json-base64", // "json-base64" | "raw" | "multipart"
+          fileFieldName: "source_file", // only used by transport "multipart"
+          extraFormFields: {}, // only used by transport "multipart"
           headers: {},
         },
 
@@ -757,6 +759,22 @@
               o == null ? undefined : o[Array.isArray(o) ? Number(k) : k],
             obj,
           );
+
+      /* ---------- file → base64 ---------------------------------------------------
+   Chunked, because String.fromCharCode.apply blows the argument limit on a
+   whole multi-megabyte array. 32 KB per chunk is well inside every engine. --- */
+      async function fileToBase64(file) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const CHUNK = 0x8000;
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          binary += String.fromCharCode.apply(
+            null,
+            bytes.subarray(i, i + CHUNK),
+          );
+        }
+        return btoa(binary);
+      }
 
       /* ---------- CRC32 (matches Python's zlib.crc32, see app/core/crc.py) ------- */
       const CRC_TABLE = (() => {
@@ -1115,13 +1133,40 @@
         try {
           /* --- API 1: digitisation service --- */
           setStep("api1", "running", "Sending file…");
-          if (CONFIG.api1.sendRawBody) {
-            /* Raw bytes + filename in the query string. The proxy assembles the
-               multipart body. Nothing here depends on a boundary surviving. */
-            const q = new URLSearchParams({
+          const transport = CONFIG.api1.transport || "json-base64";
+          const fileQuery =
+            CONFIG.api1.path +
+            (CONFIG.api1.path.includes("?") ? "&" : "?") +
+            new URLSearchParams({
               filename: selected.name,
               type: selected.type || "application/octet-stream",
-            });
+            }).toString();
+
+          if (transport === "json-base64") {
+            setStep("api1", "running", "Encoding file…");
+            const dataBase64 = await fileToBase64(selected);
+            log(
+              `encoded ${selected.size}b → ${dataBase64.length} base64 chars`,
+            );
+            setStep("api1", "running", "Sending file…");
+            const spec = {
+              ...CONFIG.api1,
+              headers: {
+                ...(CONFIG.api1.headers || {}),
+                "Content-Type": "application/json",
+              },
+            };
+            out.api1 = await call(
+              spec,
+              JSON.stringify({
+                filename: selected.name,
+                type: selected.type || "application/octet-stream",
+                size: selected.size,
+                dataBase64,
+              }),
+              fileQuery,
+            );
+          } else if (transport === "raw") {
             const spec = {
               ...CONFIG.api1,
               headers: {
@@ -1129,11 +1174,7 @@
                 "Content-Type": selected.type || "application/octet-stream",
               },
             };
-            const url =
-              CONFIG.api1.path +
-              (CONFIG.api1.path.includes("?") ? "&" : "?") +
-              q.toString();
-            out.api1 = await call(spec, selected, url);
+            out.api1 = await call(spec, selected, fileQuery);
           } else {
             const fd = new FormData();
             fd.append(CONFIG.api1.fileFieldName, selected, selected.name);
