@@ -530,24 +530,36 @@
           /* MIME is advisory only — browsers report it inconsistently. Leave empty
        to validate on extension + size alone. */
           allowedMimeTypes: [],
-          maxSizeMb: 20,
+          /* 4 MB, not 20: Vercel serverless functions reject request bodies
+         larger than 4.5 MB at the platform level, before our proxy runs — you
+         would get an opaque 413 instead of a clear message. Raise this if you
+         are only ever running locally with `node dev-server.js`. */
+          maxSizeMb: 4,
           rejectEmptyFiles: true,
         },
 
         /* ---- API 1: digitisation service, via the local proxy -------------------
-     Same-origin, so no CORS. api/upload.js forwards the multipart body to the
-     digitiser with the X-API-Key attached.
-     Real host, path and key live in api/upload.js. ------------------------- */
+     Same-origin, so no CORS.
+
+     sendRawBody: the file is POSTed as raw bytes with its name in the query
+     string, and api/upload.js builds the multipart/form-data (field
+     source_file) server-side. This is deliberate: Vercel consumes and parses
+     the request body before a function runs, which destroyed a
+     browser-generated multipart body. Raw bytes survive any runtime.
+
+     Set sendRawBody: false to have the browser build the FormData instead —
+     that works locally but breaks when deployed.
+
+     Real host, path, field name and key live in api/upload.js. ------------- */
         api1: {
           label: "Upload and digitise document",
           baseUrl: "", // same origin — no CORS
-          path: "/api/upload",
+          path: "/api/v1/form-digitisation/upload/mock?target_format=maximo",
           method: "POST",
-          fileFieldName: "source_file", // form-data key holding the file
-          extraFormFields: {}, // any additional form-data fields
+          sendRawBody: true,
+          fileFieldName: "source_file", // only used when sendRawBody is false
+          extraFormFields: {}, // only used when sendRawBody is false
           headers: {},
-          /* Do NOT set Content-Type. The browser must generate the multipart
-         boundary itself; the proxy forwards it verbatim. */
         },
 
         /* ---- API 2: Maximo create, via the local proxy ---------------------------
@@ -559,10 +571,12 @@
         api2: {
           label: "Build inspection form in Maximo",
           baseUrl: "", // same origin — no CORS
-          path: "/api/maximo",
+          path: "/oslc/os/mxapiinspform?ignorecollectionref=1&lean=1",
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+			properties: "*",
+			maxauth: "Sk9ITjpTZWRpbkAxMjM="
             /* No credential here. maxauth is attached by the proxy.
          The Cookie header can also be added there if Maximo needs
          JSESSIONIDUIMANAGE — servers may set Cookie, browsers may not. */
@@ -937,7 +951,9 @@
             ? [...body.entries()].map(([k, v]) =>
                 v instanceof File ? [k, `File(${v.name}, ${v.size}b)`] : [k, v],
               )
-            : body,
+            : body instanceof File
+              ? `raw File(${body.name}, ${body.size}b, ${body.type || "no type"})`
+              : body,
         );
 
         let res;
@@ -1020,12 +1036,33 @@
         try {
           /* --- API 1: digitisation service --- */
           setStep("api1", "running", "Sending file…");
-          const fd = new FormData();
-          fd.append(CONFIG.api1.fileFieldName, selected, selected.name);
-          Object.entries(CONFIG.api1.extraFormFields || {}).forEach(
-            ([k, val]) => fd.append(k, val),
-          );
-          out.api1 = await call(CONFIG.api1, fd);
+          if (CONFIG.api1.sendRawBody) {
+            /* Raw bytes + filename in the query string. The proxy assembles the
+               multipart body. Nothing here depends on a boundary surviving. */
+            const q = new URLSearchParams({
+              filename: selected.name,
+              type: selected.type || "application/octet-stream",
+            });
+            const spec = {
+              ...CONFIG.api1,
+              headers: {
+                ...(CONFIG.api1.headers || {}),
+                "Content-Type": selected.type || "application/octet-stream",
+              },
+            };
+            const url =
+              CONFIG.api1.path +
+              (CONFIG.api1.path.includes("?") ? "&" : "?") +
+              q.toString();
+            out.api1 = await call(spec, selected, url);
+          } else {
+            const fd = new FormData();
+            fd.append(CONFIG.api1.fileFieldName, selected, selected.name);
+            Object.entries(CONFIG.api1.extraFormFields || {}).forEach(
+              ([k, val]) => fd.append(k, val),
+            );
+            out.api1 = await call(CONFIG.api1, fd);
+          }
 
           if (!TWO_STEP) {
             setStep("api1", "done", "Digitised and sent to Maximo");

@@ -33,14 +33,36 @@ api/maximo.js      proxy → Maximo.     holds maxauth. POST creates, PATCH upda
 .gitignore         keeps .env.local out of git.
 ```
 
+## Running it on Vercel
+
+Both proxies are plain Vercel functions, so a normal deploy works — `index.html`
+is served statically and `api/*.js` run as functions. No env vars are required;
+the working hosts and credentials are in `api/`.
+
+Two Vercel-specific constraints are already handled in the code:
+
+**Vercel parses the request body before your function runs.** `bodyParser: false`
+is only honoured as an ESM `export const config`, which these CommonJS files
+cannot provide. That is why a browser-generated multipart body arrived empty and
+`/api/upload` returned `400 — no file received`. The browser now sends the file as
+**raw bytes** with its name in the query string, and `api/upload.js` builds the
+multipart itself. `getBytes()` accepts the body as `req.rawBody`, a pre-parsed
+`Buffer`, a string, or an intact stream, so it works on Vercel and locally
+without branching.
+
+**Vercel rejects request bodies over 4.5 MB** at the platform level, before the
+function runs — you would get an opaque `413`. `validation.maxSizeMb` is therefore
+`4`, so oversized files are refused in the browser with a clear message. Raise it
+if you only ever run locally.
+
 ## The flow
 
 ```
-                    browser (localhost:3000)          dev-server.js            upstream
+                    browser                           proxy                    upstream
 1  validate         local file checks                       —                      —
 2  digitise         POST /api/upload      ──► api/upload.js  ──► POST {digitiser}/api/v1/form-digitisation
-                                                                    /upload/mock?target_format=maximo
-                                                                    + X-API-Key
+                    ?filename=…&type=…        builds the           /upload/mock?target_format=maximo
+                    body = raw file bytes     multipart here        + X-API-Key
 3  create           POST /api/maximo      ──► api/maximo.js  ──► POST {maximo}/api/os/mxapiinspform
                     body = step 2's response verbatim              ?ignorecollectionref=1&lean=1
                                                                     + maxauth + properties: *
@@ -76,12 +98,15 @@ that. Proxying removes the problem instead of fighting it:
   server may send `Cookie`, a browser may not.
 - No mixed-content issue: the page is `http`, the `https` calls are server-side.
 
-## Two bugs fixed from the previous version
+## Bugs fixed along the way
 
 1. **The PATCH was unauthenticated.** `api3.headers` sent `APIKEY: ""` and no
    `maxauth`, so step 4 would have returned 401 even with CORS solved. Both
    Maximo calls now use the same credential, applied by the proxy.
-2. **Binary uploads were corrupted.** An earlier `dev-server.js` buffered request
+2. **`/api/upload` returned `400 — no file received` on Vercel.** Vercel consumed
+   and parsed the multipart body before the function ran. Fixed by sending raw
+   bytes and assembling the multipart server-side.
+3. **Binary uploads were corrupted.** An earlier `dev-server.js` buffered request
    bodies as a string. It now uses a Buffer, verified with a 300 KB PDF whose
    SHA-256 matches byte for byte at the digitiser.
 
@@ -114,12 +139,19 @@ repo.
 
 ## Verified
 
-Full run against mocked upstreams, with both proxies live:
+Tested twice against mocked upstreams: once through `dev-server.js`, and once
+through a **Vercel runtime simulation** that drains and pre-parses the body and
+withholds `req.rawBody` — the exact condition that caused the `400` on the
+deployed site. Both pass identically.
 
 - All four steps green; `inspformnum` and the mapped-cascade count shown.
-- Multipart intact through the proxy: `source_file` field, real filename,
-  boundary preserved, `?target_format=maximo` preserved, and SHA-256 of a 300 KB
-  PDF matching exactly at the digitiser.
+- Multipart assembled correctly by the proxy: `source_file` field, real filename,
+  `?target_format=maximo` preserved, and SHA-256 of the bytes matching exactly at
+  the digitiser — a 300 KB PDF locally and a 13 KB `.docx` through the Vercel
+  simulation.
+- An empty upload now returns a `400` that includes diagnostics (`hasRawBody`,
+  `bodyType`, `contentLength`) so a body-handling problem is identifiable from the
+  response instead of guesswork.
 - Step 2's JSON reaching Maximo verbatim, with `maxauth` and `properties: *`.
 - PATCH hitting `/mxapiinspform/3345` with `patchtype: MERGE`, and the body
   containing real numbers (`1001`/`2001`/`2002`) rather than CRC32 hashes.
