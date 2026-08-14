@@ -580,7 +580,7 @@
      (/oslc/os/mxapiinspform or /api/os/mxapiinspform) is chosen inside
      api/maximo.js, which probes both unless MAXIMO_OS_PATH pins one.
 
-     Real host, path, maxauth and properties header live in api/maximo.js. --- */
+     Real host, path, APIKEY and properties header live in api/maximo.js. --- */
         api2: {
           label: "Build inspection form in Maximo",
           baseUrl: "", // same origin — no CORS
@@ -588,7 +588,7 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            /* No credential here. maxauth is attached by the proxy.
+            /* No credential here. APIKEY is attached by the proxy.
          The Cookie header can also be added there if Maximo needs
          JSESSIONIDUIMANAGE — servers may set Cookie, browsers may not. */
           },
@@ -629,9 +629,9 @@
           /* Goes through the same proxy. The record id from API 2's response is
        passed as ?id=, and api/maximo.js turns that into
        {maximoBase}/api/os/mxapiinspform/{id}?ignorecollectionref=1&lean=1
-       and attaches maxauth + properties + patchtype: MERGE.
+       and attaches APIKEY + properties + patchtype: MERGE.
 
-       NOTE: the original version sent APIKEY: "" here and no maxauth, so this
+       NOTE: the original version sent APIKEY: "" here, so this
        step was unauthenticated and would have failed with 401 even if CORS had
        allowed it. The proxy now applies the same credential as API 2. */
           urlFromResponse: (r2) => {

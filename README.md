@@ -28,7 +28,7 @@ Do **not** double-click `index.html`. `file://` cannot reach `/api/upload`, and
 dev-server.js      run this. serves the page and both proxies on :3000.
 index.html         the UI. same-origin requests only, no credentials in it.
 api/upload.js      proxy → digitiser.  holds X-API-Key.
-api/maximo.js      proxy → Maximo.     holds maxauth. POST creates, PATCH updates.
+api/maximo.js      proxy → Maximo.     holds APIKEY. POST creates, PATCH updates.
 ```
 
 ## Running it on Vercel
@@ -89,10 +89,10 @@ this flag it will work deployed. Every test below was run both ways.
                     file as dataBase64        builds multipart      + X-API-Key
 3  create           POST /api/maximo      ──► api/maximo.js  ──► POST {maximo}/api/os/mxapiinspform
                     body = step 2's response verbatim              ?ignorecollectionref=1&lean=1
-                                                                    + maxauth + properties: *
+                                                                    + APIKEY + properties: *
 4  remap cascades   PATCH /api/maximo     ──► api/maximo.js  ──► PATCH {maximo}/api/os/mxapiinspform/{id}
                     ?id=<inspectionformid>                         ?ignorecollectionref=1&lean=1
-                    body = remapped inspcascadeoption[]             + maxauth + properties: *
+                    body = remapped inspcascadeoption[]             + APIKEY + properties: *
                                                                     + patchtype: MERGE
 ```
 
@@ -114,10 +114,10 @@ browser can never call `mxapiinspform` directly, and no front-end change fixes
 that. Proxying removes the problem instead of fighting it:
 
 - No CORS or preflight anywhere. Nothing to ask an administrator for.
-- `PATCH` and the non-simple headers (`maxauth`, `properties`, `patchtype`) stop
+- `PATCH` and the non-simple headers (`APIKEY`, `properties`, `patchtype`) stop
   being a problem, because same-origin requests are never preflighted.
 - Neither credential is in the browser. Verified: the page contains no key, no
-  `maxauth`, and neither hostname.
+  `APIKEY`, and neither hostname.
 - No mixed-content issue: the page is `http`, the `https` calls are server-side.
 
 ## The two fields people keep breaking
@@ -132,24 +132,24 @@ Upstream paths live in the proxy files:
 | Where | Setting |
 |---|---|
 | `api/upload.js` | `PATH` — `/api/v1/form-digitisation/upload/mock?target_format=maximo` |
-| `api/maximo.js` | `OS_PATH` — `/oslc/os/mxapiinspform` |
+| `api/maximo.js` | `OS_PATH` — `/api/os/mxapiinspform` |
 
-Same for credentials: `maxauth`, `APIKEY` and `X-API-Key` must **not** appear in
+Same for credentials: `APIKEY` and `X-API-Key` must **not** appear in
 `index.html`. The proxies attach them server-side. A credential in the page is
 readable by every visitor and changes nothing about the request.
 
 Both mistakes are now caught at page load. `index.html` runs a config check and,
 if either rule is violated, shows a red banner naming the exact field and refuses
-to send anything. Verified: with a bad path or a stray `maxauth`, zero requests
+to send anything. Verified: with a bad path or a stray `APIKEY`, zero requests
 leave the page.
 
 ## Which Maximo OS path?
 
 Maximo exposes object structures under both `/oslc/os/...` and `/api/os/...`, and
 which one answers varies by instance. `api/maximo.js` is pinned to
-`/oslc/os/mxapiinspform` — the `OS_PATH` constant — and reports it in the
+`/api/os/mxapiinspform` — the `OS_PATH` constant — and reports it in the
 `X-Maximo-Path` response header. Edit the constant if a given instance needs
-`/api/os/mxapiinspform` instead.
+`/oslc/os/mxapiinspform` instead.
 
 ## Bugs fixed along the way
 
@@ -176,7 +176,7 @@ There are no env vars — edit the constants directly:
 | Where | Constants |
 |---|---|
 | `api/upload.js` | `BASE_URL`, `PATH`, `FIELD`, `API_KEY` |
-| `api/maximo.js` | `BASE_URL`, `OS_PATH`, `MAXAUTH` |
+| `api/maximo.js` | `BASE_URL`, `OS_PATH`, `APIKEY` |
 
 Note the current digitiser path ends in `/upload/mock` — that is the mock
 endpoint. Drop `/mock` via `PATH` in `api/upload.js` when you want the real one.
@@ -186,8 +186,7 @@ endpoint. Drop `/mock` via `PATH` in `api/upload.js` when you want the real one.
 Neither credential reaches the browser. Both are hardcoded in `api/`, so anyone
 with the repo has them — acceptable for a demo, not for a public repo.
 
-`Sk9ITjpTZWRpbkAxMjM=` is base64, not encryption. It decodes in one command to
-`JOHN:Sedin@123`. Treat it as a plaintext password.
+`APIKEY` is a plaintext Maximo API key, not encrypted. Treat it like a password.
 
 ## Verified
 
@@ -203,7 +202,7 @@ with `SIMULATE_VERCEL=1`, which reproduces the deployed runtime that caused the
 - An empty upload now returns a `400` that includes diagnostics (`hasRawBody`,
   `bodyType`, `contentLength`) so a body-handling problem is identifiable from the
   response instead of guesswork.
-- Step 2's JSON reaching Maximo verbatim, with `maxauth` and `properties: *`.
+- Step 2's JSON reaching Maximo verbatim, with `APIKEY` and `properties: *`.
 - PATCH hitting `/mxapiinspform/3345` with `patchtype: MERGE`, and the body
   containing real numbers (`1001`/`2001`/`2002`) rather than CRC32 hashes.
 - Zero cross-origin requests: every request the page made was recorded, none left

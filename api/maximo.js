@@ -5,7 +5,7 @@
  *   PATCH /api/maximo?id=<n>    → update   PATCH {BASE_URL}{OS_PATH}/<n>?ignorecollectionref=1&lean=1
  *                                          with patchtype: MERGE
  *
- * Both get maxauth + properties: * attached here, server-side. Maximo's CORS
+ * Both get APIKEY + properties: * attached here, server-side. Maximo's CORS
  * allowlist only admits the IBM Maximo Mobile app's own origin, so a browser can
  * never call it directly — this proxy is what makes the flow possible at all.
  *
@@ -13,14 +13,14 @@
  */
 
 const QUERY = "?ignorecollectionref=1&lean=1";
-const BASE_URL = "https://demo.eam360.com/maxrest";
-const OS_PATH = "/oslc/os/mxapiinspform";
-const MAXAUTH = "Sk9ITjpTZWRpbkAxMjM="; // base64 of "JOHN:Sedin@123"
+const BASE_URL = "https://maseam360.manage.maseam360.apps.masdev.eam360.com/maximo";
+const OS_PATH = "/api/os/mxapiinspform";
+const APIKEY = "6l1cccr640vj72m6cn3uo88hbp6568sa3hiup6j";
 const TIMEOUT_MS = 120000;
 
 
 function authHeaders() {
-  return { "properties": "*", "maxauth": MAXAUTH };
+  return { "properties": "*", "APIKEY": APIKEY };
 }
 
 function readRawText(req) {
@@ -88,34 +88,27 @@ module.exports = async (req, res) => {
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  let upstream;
   try {
-    let upstream;
-    try {
-      upstream = await fetch(target, {
-        method: req.method, headers, body: bodyText, signal: ctrl.signal
-      });
-    } catch (err) {
-      const timedOut = ctrl.signal.aborted;
-      return res.status(504).json({
-        message: timedOut
-          ? `Maximo did not respond within ${Math.round(TIMEOUT_MS / 1000)}s.`
-          : `Could not reach Maximo at ${BASE_URL}: ${err.message}`
-      });
-    }
-
-    const text = await upstream.text();
-    console.log(`  ↳ ${req.method} ${target} → ${upstream.status} (${text.length} bytes)`);
-    res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/json");
-    res.setHeader("X-Maximo-Path", OS_PATH);
-    const location = upstream.headers.get("location");
-    if (location) res.setHeader("X-Maximo-Location", location);
-    return res.status(upstream.status).send(text);
-  } catch (err) {
-    console.error(`  ↳ ${req.method} ${target} crashed:`, err);
-    return res.status(502).json({
-      message: `Unexpected error talking to Maximo: ${err && err.message ? err.message : String(err)}`
+    upstream = await fetch(target, {
+      method: req.method, headers, body: bodyText, signal: ctrl.signal
     });
-  } finally {
+  } catch (err) {
     clearTimeout(timer);
+    const timedOut = ctrl.signal.aborted;
+    return res.status(504).json({
+      message: timedOut
+        ? `Maximo did not respond within ${Math.round(TIMEOUT_MS / 1000)}s.`
+        : `Could not reach Maximo at ${BASE_URL}: ${err.message}`
+    });
   }
+  clearTimeout(timer);
+
+  const text = await upstream.text();
+  console.log(`  ↳ ${req.method} ${target} → ${upstream.status} (${text.length} bytes)`);
+  res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/json");
+  res.setHeader("X-Maximo-Path", OS_PATH);
+  const location = upstream.headers.get("location");
+  if (location) res.setHeader("X-Maximo-Location", location);
+  return res.status(upstream.status).send(text);
 };
