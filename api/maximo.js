@@ -5,7 +5,7 @@
  *   PATCH /api/maximo?id=<n>    → update   PATCH {BASE_URL}{OS_PATH}/<n>?ignorecollectionref=1&lean=1
  *                                          with patchtype: MERGE
  *
- * Both get APIKEY + properties: * attached here, server-side. Maximo's CORS
+ * Both get maxauth + properties: * attached here, server-side. Maximo's CORS
  * allowlist only admits the IBM Maximo Mobile app's own origin, so a browser can
  * never call it directly — this proxy is what makes the flow possible at all.
  *
@@ -82,7 +82,16 @@ module.exports = async (req, res) => {
   }
 
   const headers = { "Content-Type": "application/json", ...authHeaders() };
-  if (req.method === "PATCH") headers["patchtype"] = "MERGE";
+  /* Maximo's servlet container (WebSphere Liberty) rejects a literal HTTP
+     PATCH verb with 501 ("Method PATCH is not defined ... not supported by
+     the Servlet API"). IBM's documented workaround: send POST with
+     x-method-override: PATCH instead — patchtype: MERGE still selects merge
+     semantics. */
+  const upstreamMethod = req.method === "PATCH" ? "POST" : req.method;
+  if (req.method === "PATCH") {
+    headers["patchtype"] = "MERGE";
+    headers["x-method-override"] = "PATCH";
+  }
 
   const target = BASE_URL + OS_PATH + (id ? "/" + id : "") + QUERY;
 
@@ -91,7 +100,7 @@ module.exports = async (req, res) => {
   let upstream;
   try {
     upstream = await fetch(target, {
-      method: req.method, headers, body: bodyText, signal: ctrl.signal
+      method: upstreamMethod, headers, body: bodyText, signal: ctrl.signal
     });
   } catch (err) {
     clearTimeout(timer);
