@@ -88,27 +88,34 @@ module.exports = async (req, res) => {
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-  let upstream;
   try {
-    upstream = await fetch(target, {
-      method: req.method, headers, body: bodyText, signal: ctrl.signal
-    });
-  } catch (err) {
-    clearTimeout(timer);
-    const timedOut = ctrl.signal.aborted;
-    return res.status(504).json({
-      message: timedOut
-        ? `Maximo did not respond within ${Math.round(TIMEOUT_MS / 1000)}s.`
-        : `Could not reach Maximo at ${BASE_URL}: ${err.message}`
-    });
-  }
-  clearTimeout(timer);
+    let upstream;
+    try {
+      upstream = await fetch(target, {
+        method: req.method, headers, body: bodyText, signal: ctrl.signal
+      });
+    } catch (err) {
+      const timedOut = ctrl.signal.aborted;
+      return res.status(504).json({
+        message: timedOut
+          ? `Maximo did not respond within ${Math.round(TIMEOUT_MS / 1000)}s.`
+          : `Could not reach Maximo at ${BASE_URL}: ${err.message}`
+      });
+    }
 
-  const text = await upstream.text();
-  console.log(`  ↳ ${req.method} ${target} → ${upstream.status} (${text.length} bytes)`);
-  res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/json");
-  res.setHeader("X-Maximo-Path", OS_PATH);
-  const location = upstream.headers.get("location");
-  if (location) res.setHeader("X-Maximo-Location", location);
-  return res.status(upstream.status).send(text);
+    const text = await upstream.text();
+    console.log(`  ↳ ${req.method} ${target} → ${upstream.status} (${text.length} bytes)`);
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/json");
+    res.setHeader("X-Maximo-Path", OS_PATH);
+    const location = upstream.headers.get("location");
+    if (location) res.setHeader("X-Maximo-Location", location);
+    return res.status(upstream.status).send(text);
+  } catch (err) {
+    console.error(`  ↳ ${req.method} ${target} crashed:`, err);
+    return res.status(502).json({
+      message: `Unexpected error talking to Maximo: ${err && err.message ? err.message : String(err)}`
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 };
