@@ -82,7 +82,16 @@ module.exports = async (req, res) => {
   }
 
   const headers = { "Content-Type": "application/json", ...authHeaders() };
-  if (req.method === "PATCH") headers["patchtype"] = "MERGE";
+  /* Maximo's servlet container (WebSphere Liberty) rejects a literal HTTP
+     PATCH verb with 501 ("Method PATCH is not defined ... not supported by
+     the Servlet API"). IBM's documented workaround: send POST with
+     x-method-override: PATCH instead — patchtype: MERGE still selects merge
+     semantics. */
+  const upstreamMethod = req.method === "PATCH" ? "POST" : req.method;
+  if (req.method === "PATCH") {
+    headers["patchtype"] = "MERGE";
+    headers["x-method-override"] = "PATCH";
+  }
 
   const target = BASE_URL + OS_PATH + (id ? "/" + id : "") + QUERY;
 
@@ -92,7 +101,7 @@ module.exports = async (req, res) => {
     let upstream;
     try {
       upstream = await fetch(target, {
-        method: req.method, headers, body: bodyText, signal: ctrl.signal
+        method: upstreamMethod, headers, body: bodyText, signal: ctrl.signal
       });
     } catch (err) {
       const timedOut = ctrl.signal.aborted;

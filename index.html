@@ -604,7 +604,9 @@
           /* Field in API 2's response to show on success, if present. */
           resultPath: "inspformnum",
 
-          /* API 1's response IS API 2's request body, passed through verbatim.
+          /* API 1's response IS API 2's request body, passed through verbatim
+       (aside from the SIG->TR downgrade below — this Maximo 7.6 env has no
+       signature field type).
        NOTE: this includes inspcascadeoption[] with srcfield/tgtfield/etc as
        CRC32 hashes of description text (see app/core/crc.py), not real
        Maximo inspfieldnum/inspquestionnum — those don't exist yet. If Maximo
@@ -612,7 +614,7 @@
        the cascade rows (or the whole request). API 3 below is what fixes the
        hashes up to real numbers; if API 2 turns out to choke on the bogus
        FKs, strip inspcascadeoption here and let API 3 add it back instead. */
-          buildBody: (r1, id, file) => r1,
+          buildBody: (r1, id, file) => downgradeSigFields(r1),
         },
 
         /* ---- API 3: remap inspcascadeoption[] to real Maximo numbers -------------
@@ -635,7 +637,9 @@
        step was unauthenticated and would have failed with 401 even if CORS had
        allowed it. The proxy now applies the same credential as API 2. */
           urlFromResponse: (r2) => {
-            const id = dotGet(r2, "member.0.inspectionformid");
+            const id =
+              dotGet(r2, "member.0.inspectionformid") ??
+              dotGet(r2, "inspectionformid");
             if (id == null) return null;
             return `/api/maximo?id=${encodeURIComponent(id)}`;
           },
@@ -795,9 +799,21 @@
         return (crc ^ 0xffffffff) >>> 0;
       }
 
+      /* This Maximo env is 7.6, which has no SIG (signature) field type —
+     downgrade to TR (text response) before it ever reaches Maximo. */
+      function downgradeSigFields(form) {
+        const clone = JSON.parse(JSON.stringify(form));
+        (clone?.inspquestion || []).forEach((q) => {
+          (q.inspfield || []).forEach((f) => {
+            if (f.fieldtype === "SIG") f.fieldtype = "TR";
+          });
+        });
+        return clone;
+      }
+
       /* ---------- inspcascadeoption remap (CRC32 hash -> real Maximo number) ---- */
       function collectRealIds(api2Resp) {
-        const form = dotGet(api2Resp, "member.0");
+        const form = dotGet(api2Resp, "member.0") ?? api2Resp;
         const byQuestion = new Map(); // crc32(group/question description) -> inspquestionnum
         const byField = new Map(); // crc32(field description) -> inspfieldnum
         (form?.inspquestion || []).forEach((q) => {
@@ -814,6 +830,14 @@
       function mapCascadeOptions(api1Resp, api2Resp) {
         const cascades = dotGet(api1Resp, "inspcascadeoption") || [];
         const { byQuestion, byField } = collectRealIds(api2Resp);
+        const createdForm = dotGet(api2Resp, "member.0") ?? api2Resp;
+        /* API2's create call already persisted these same rows (still keyed by
+       the CRC32 placeholders) and assigned each a real inspcascadeoptionid.
+       MERGE-patching without that id back onto the row makes Maximo insert a
+       NEW child row instead of updating the existing one — so every run would
+       leave the prior run's row behind, orphaned with unmapped placeholders.
+       Match on the untouched placeholder fields to recover the id. */
+        const createdCascades = (createdForm?.inspcascadeoption || []).slice();
         console.group("[digitise] cascade remap");
         log(
           "known question hashes",
@@ -827,10 +851,28 @@
           const tgtquestion = byQuestion.get(String(c.tgtquestion));
           const srcfield = byField.get(String(c.srcfield));
           const tgtfield = byField.get(String(c.tgtfield));
+          const createdIdx = createdCascades.findIndex(
+            (cc) =>
+              String(cc.srcquestion) === String(c.srcquestion) &&
+              String(cc.tgtquestion) === String(c.tgtquestion) &&
+              String(cc.srcfield) === String(c.srcfield) &&
+              String(cc.tgtfield) === String(c.tgtfield) &&
+              String(cc.srctxtresponse ?? "") === String(c.srctxtresponse ?? ""),
+          );
+          const created =
+            createdIdx === -1 ? undefined : createdCascades.splice(createdIdx, 1)[0];
           const result = { ...c, srcquestion, tgtquestion, srcfield, tgtfield };
+          if (created?.inspcascadeoptionid != null)
+            result.inspcascadeoptionid = created.inspcascadeoptionid;
           if (!srcquestion || !tgtquestion || !srcfield || !tgtfield) {
             unresolved.push(i);
             log(`cascade[${i}] UNRESOLVED`, { from: c, to: result });
+          } else if (created == null) {
+            unresolved.push(i);
+            log(`cascade[${i}] UNRESOLVED (no matching created row for id)`, {
+              from: c,
+              to: result,
+            });
           } else {
             log(`cascade[${i}] ok`, { from: c, to: result });
           }
