@@ -2,9 +2,8 @@
  * Local dev server — a stand-in for `vercel dev`, with no Vercel account,
  * no CLI and no npm install required. Plain Node, nothing else.
  *
- *   1. put your key in .env.local   (MAXIMO_APIKEY=...)
- *   2. node dev-server.js
- *   3. open http://localhost:3000
+ *   1. node dev-server.js
+ *   2. open http://localhost:3000
  *
  * It serves index.html and runs anything in api/ the same way Vercel does,
  * so /api/inspform works exactly as it will in production.
@@ -16,25 +15,6 @@ const path = require("path");
 
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 3000);
-
-/* ---- load .env.local (and .env) without a dependency -------------------- */
-function loadEnv(file) {
-  const full = path.join(ROOT, file);
-  if (!fs.existsSync(full)) return false;
-  for (const line of fs.readFileSync(full, "utf8").split(/\r?\n/)) {
-    const t = line.trim();
-    if (!t || t.startsWith("#")) continue;
-    const i = t.indexOf("=");
-    if (i < 1) continue;
-    const key = t.slice(0, i).trim();
-    let val = t.slice(i + 1).trim();
-    if ((val.startsWith('"') && val.endsWith('"')) ||
-        (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
-    if (!(key in process.env)) process.env[key] = val;
-  }
-  return true;
-}
-const envFile = ["".concat(".env.local"), ".env"].find(loadEnv);
 
 const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -153,10 +133,9 @@ server.on("error", (e) => {
 
 server.listen(PORT, () => {
   console.log(`\n  Inspection form UI running:  http://localhost:${PORT}\n`);
-  console.log(`  env file       : ${envFile || "none — using the demo defaults in api/"}`);
-  console.log(`  digitiser      : ${process.env.DIGITISE_BASE_URL || "https://dev-mms.eam360.com/digitiser"}`);
-  console.log(`  Maximo         : ${process.env.MAXIMO_BASE_URL || "https://demo.eam360.com/maxrest"}`);
-  console.log(`  Maximo auth    : ${process.env.MAXIMO_APIKEY ? "APIKEY (from env)" : "maxauth"}`);
+  console.log(`  digitiser      : https://dev-mms.eam360.com/digitiser`);
+  console.log(`  Maximo         : https://demo.eam360.com/maxrest`);
+  console.log(`  Maximo auth    : maxauth`);
   console.log(`\n  All three API calls are proxied through this server, so the`);
   console.log(`  browser makes same-origin requests only — no CORS anywhere.`);
   console.log(`\n  Ctrl+C to stop.\n`);

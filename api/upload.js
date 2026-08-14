@@ -18,18 +18,14 @@
  * Cost: base64 is ~33% larger than the file. Vercel rejects request bodies over
  * 4.5 MB, so the practical file ceiling is ~3.3 MB. index.html caps at 3 MB.
  *
- * Env overrides (optional — the defaults are the working values):
- *   DIGITISE_BASE_URL   default https://dev-mms.eam360.com/digitiser
- *   DIGITISE_PATH       default /api/v1/form-digitisation/upload/mock?target_format=maximo
- *   DIGITISE_FIELD      default source_file
- *   DIGITISE_API_KEY    default the key below
- *   UPSTREAM_TIMEOUT_MS default 120000
+ * No env vars — host, path, field name and key are hardcoded below.
  */
 
-const DEFAULT_BASE = "https://dev-mms.eam360.com/digitiser";
-const DEFAULT_PATH = "/api/v1/form-digitisation/upload/mock?target_format=maximo";
-const DEFAULT_FIELD = "source_file";
-const DEFAULT_KEY = "jT1pyUNC,ja==+gPk@KCh{qyEtAu3s.e";
+const BASE_URL = "https://dev-mms.eam360.com/digitiser";
+const PATH = "/api/v1/form-digitisation/upload/mock?target_format=maximo";
+const FIELD = "source_file";
+const API_KEY = "jT1pyUNC,ja==+gPk@KCh{qyEtAu3s.e";
+const TIMEOUT_MS = 120000;
 
 module.exports.config = { api: { bodyParser: true } };
 
@@ -138,25 +134,20 @@ module.exports = async (req, res) => {
     });
   }
 
-  const base = (process.env.DIGITISE_BASE_URL || DEFAULT_BASE).replace(/\/+$/, "");
-  const path = process.env.DIGITISE_PATH || DEFAULT_PATH;
-  const field = process.env.DIGITISE_FIELD || DEFAULT_FIELD;
-  const apiKey = process.env.DIGITISE_API_KEY || DEFAULT_KEY;
-  const timeoutMs = Number(process.env.UPSTREAM_TIMEOUT_MS || 120000);
-  const target = base + path;
+  const target = BASE_URL + PATH;
 
   /* fetch generates the boundary and the matching Content-Type. */
   const form = new FormData();
-  form.append(field, new Blob([bytes], { type: type || "application/octet-stream" }), filename);
+  form.append(FIELD, new Blob([bytes], { type: type || "application/octet-stream" }), filename);
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
 
   let upstream;
   try {
     upstream = await fetch(target, {
       method: "POST",
-      headers: { "X-API-Key": apiKey },
+      headers: { "X-API-Key": API_KEY },
       body: form,
       signal: ctrl.signal
     });
@@ -165,14 +156,14 @@ module.exports = async (req, res) => {
     const timedOut = ctrl.signal.aborted;
     return res.status(504).json({
       message: timedOut
-        ? `The digitisation service did not respond within ${Math.round(timeoutMs / 1000)}s.`
-        : `Could not reach the digitisation service at ${base}: ${err.message}`
+        ? `The digitisation service did not respond within ${Math.round(TIMEOUT_MS / 1000)}s.`
+        : `Could not reach the digitisation service at ${BASE_URL}: ${err.message}`
     });
   }
   clearTimeout(timer);
 
   const text = await upstream.text();
-  console.log(`  ↳ POST ${target} → ${upstream.status} | ${field}="${filename}" ${bytes.length}b via ${via}`);
+  console.log(`  ↳ POST ${target} → ${upstream.status} | ${FIELD}="${filename}" ${bytes.length}b via ${via}`);
   res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/json");
   res.setHeader("X-Upload-Via", via);
   return res.status(upstream.status).send(text);

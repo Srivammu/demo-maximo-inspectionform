@@ -29,15 +29,13 @@ dev-server.js      run this. serves the page and both proxies on :3000.
 index.html         the UI. same-origin requests only, no credentials in it.
 api/upload.js      proxy → digitiser.  holds X-API-Key.
 api/maximo.js      proxy → Maximo.     holds maxauth. POST creates, PATCH updates.
-.env.example       optional host/credential overrides.
-.gitignore         keeps .env.local out of git.
 ```
 
 ## Running it on Vercel
 
 Both proxies are plain Vercel functions, so a normal deploy works — `index.html`
-is served statically and `api/*.js` run as functions. No env vars are required;
-the working hosts and credentials are in `api/`.
+is served statically and `api/*.js` run as functions. There are no env vars at
+all; the hosts and credentials are hardcoded constants in `api/`.
 
 Two Vercel-specific constraints are already handled in the code:
 
@@ -120,8 +118,6 @@ that. Proxying removes the problem instead of fighting it:
   being a problem, because same-origin requests are never preflighted.
 - Neither credential is in the browser. Verified: the page contains no key, no
   `maxauth`, and neither hostname.
-- If Maximo turns out to need `JSESSIONIDUIMANAGE`, set `MAXIMO_COOKIE` — a
-  server may send `Cookie`, a browser may not.
 - No mixed-content issue: the page is `http`, the `https` calls are server-side.
 
 ## The two fields people keep breaking
@@ -135,8 +131,8 @@ Upstream paths live in the proxy files:
 
 | Where | Setting |
 |---|---|
-| `api/upload.js` | `DIGITISE_PATH` — `/api/v1/form-digitisation/upload/mock?target_format=maximo` |
-| `api/maximo.js` | `MAXIMO_OS_PATH` — `/oslc/os/mxapiinspform` or `/api/os/mxapiinspform` |
+| `api/upload.js` | `PATH` — `/api/v1/form-digitisation/upload/mock?target_format=maximo` |
+| `api/maximo.js` | `OS_PATH` — `/oslc/os/mxapiinspform` |
 
 Same for credentials: `maxauth`, `APIKEY` and `X-API-Key` must **not** appear in
 `index.html`. The proxies attach them server-side. A credential in the page is
@@ -147,14 +143,13 @@ if either rule is violated, shows a red banner naming the exact field and refuse
 to send anything. Verified: with a bad path or a stray `maxauth`, zero requests
 leave the page.
 
-## Which Maximo OS path? It probes
+## Which Maximo OS path?
 
 Maximo exposes object structures under both `/oslc/os/...` and `/api/os/...`, and
-which one answers varies by instance. `api/maximo.js` tries
-`/oslc/os/mxapiinspform` first, falls back to `/api/os/mxapiinspform` on a `404`,
-and reports the winner in the `X-Maximo-Path` response header — visible in
-DevTools → Network → the `/api/maximo` request. Set `MAXIMO_OS_PATH` to pin it and
-skip the probe.
+which one answers varies by instance. `api/maximo.js` is pinned to
+`/oslc/os/mxapiinspform` — the `OS_PATH` constant — and reports it in the
+`X-Maximo-Path` response header. Edit the constant if a given instance needs
+`/api/os/mxapiinspform` instead.
 
 ## Bugs fixed along the way
 
@@ -176,30 +171,23 @@ skip the probe.
 
 ## Overriding hosts or credentials
 
-Copy `.env.example` to `.env.local` and uncomment what you need:
+There are no env vars — edit the constants directly:
 
-```
-MAXIMO_BASE_URL=https://main.manage.masdev.apps.dev.eam360.com/maximo
-MAXIMO_APIKEY=<key>          # sent as APIKEY instead of maxauth
-DIGITISE_BASE_URL=http://localhost:8009
-DIGITISE_PATH=/api/v1/form-digitisation/upload
-```
-
-Env values win over the defaults in `api/`. `.env.local` is gitignored.
+| Where | Constants |
+|---|---|
+| `api/upload.js` | `BASE_URL`, `PATH`, `FIELD`, `API_KEY` |
+| `api/maximo.js` | `BASE_URL`, `OS_PATH`, `MAXAUTH` |
 
 Note the current digitiser path ends in `/upload/mock` — that is the mock
-endpoint. Drop `/mock` via `DIGITISE_PATH` when you want the real one.
+endpoint. Drop `/mock` via `PATH` in `api/upload.js` when you want the real one.
 
 ## Security status
 
 Neither credential reaches the browser. Both are hardcoded in `api/`, so anyone
-with the repo has them — acceptable for a demo. To close that, delete the
-`DEFAULT_KEY` / `DEFAULT_MAXAUTH` constants and require the env vars; the code
-already prefers env values when present.
+with the repo has them — acceptable for a demo, not for a public repo.
 
 `Sk9ITjpTZWRpbkAxMjM=` is base64, not encryption. It decodes in one command to
-`JOHN:Sedin@123`. Treat it as a plaintext password, and do not put it in a public
-repo.
+`JOHN:Sedin@123`. Treat it as a plaintext password.
 
 ## Verified
 
