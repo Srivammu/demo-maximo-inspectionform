@@ -155,7 +155,7 @@ server.listen(PORT, () => {
   console.log(`\n  Inspection form UI running:  http://localhost:${PORT}\n`);
   console.log(`  env file       : ${envFile || "none — using the demo defaults in api/"}`);
   console.log(`  digitiser      : ${process.env.DIGITISE_BASE_URL || "https://dev-mms.eam360.com/digitiser"}`);
-  console.log(`  Maximo         : ${process.env.MAXIMO_BASE_URL || "https://demo.eam360.com/maxrest"}`);
+  console.log(`  Maximo         : ${process.env.MAXIMO_BASE_URL || "https://auth.maseam360.apps.masdev.eam360.com/maximo"}`);
   console.log(`  Maximo auth    : ${process.env.MAXIMO_APIKEY ? "APIKEY (from env)" : "maxauth"}`);
   console.log(`\n  All three API calls are proxied through this server, so the`);
   console.log(`  browser makes same-origin requests only — no CORS anywhere.`);

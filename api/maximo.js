@@ -24,14 +24,13 @@
  *   UPSTREAM_TIMEOUT_MS default 120000
  */
 
-const DEFAULT_BASE = "https://demo.eam360.com/maxrest";
-const DEFAULT_MAXAUTH = "Sk9ITjpTZWRpbkAxMjM=";
+
 const QUERY = "?ignorecollectionref=1&lean=1";
 
 const osCandidates = () =>
-  process.env.MAXIMO_OS_PATH
+  process.env.MAXIMO_OS_PATH 
     ? [process.env.MAXIMO_OS_PATH]
-    : ["/oslc/os/mxapiinspform", "/api/os/mxapiinspform"];
+    : ["/oslc/os/mxapiinspform"];
 
 function authHeaders() {
   const h = { "properties": "*" };
@@ -99,7 +98,7 @@ module.exports = async (req, res) => {
     }
   }
 
-  const base = (process.env.MAXIMO_BASE_URL || DEFAULT_BASE).replace(/\/+$/, "");
+  const base = (process.env.MAXIMO_BASE_URL).replace(/\/+$/, "");
   const headers = { "Content-Type": "application/json", ...authHeaders() };
   if (req.method === "PATCH") headers["patchtype"] = "MERGE";
 
