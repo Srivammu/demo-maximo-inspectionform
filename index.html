@@ -383,6 +383,68 @@
         font-size: 12px;
         margin: 10px 0 0;
       }
+      /* ---------- response editor ---------- */
+      .resp-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      button.small {
+        font: inherit;
+        font-size: 12.5px;
+        font-weight: 600;
+        padding: 6px 11px;
+        border-radius: 7px;
+        cursor: pointer;
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--line);
+      }
+      button.small:hover:not(:disabled) {
+        background: var(--bg);
+      }
+      button.small:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      button.small.on {
+        background: var(--brand);
+        color: var(--brand-ink);
+        border-color: var(--brand);
+      }
+      #editor label {
+        display: block;
+        font-size: 12.5px;
+        color: var(--muted);
+        margin: 14px 0 6px;
+      }
+      #editor textarea {
+        width: 100%;
+        min-height: 300px;
+        resize: vertical;
+        background: var(--bg);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 12px;
+        font:
+          12px/1.55 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          Consolas,
+          monospace;
+      }
+      #editor textarea:focus {
+        outline: none;
+        border-color: var(--brand);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 20%, transparent);
+      }
+      .hint {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 10px 0 0;
+      }
       .hide {
         display: none !important;
       }
@@ -471,7 +533,45 @@
         ></div>
         <details id="respBox" class="hide">
           <summary>View API responses</summary>
+
+          <div class="resp-actions">
+            <button id="editBtn" class="small" type="button">
+              Edit digitised JSON
+            </button>
+            <button id="copyBtn" class="small" type="button">Copy all</button>
+          </div>
+
           <pre id="respJson"></pre>
+
+          <div id="editor" class="hide">
+            <label for="respEdit">
+              Step 2 output — this is what gets sent to Maximo. Fix it here and
+              re-run without uploading the document again.
+            </label>
+            <textarea
+              id="respEdit"
+              spellcheck="false"
+              autocapitalize="off"
+              autocorrect="off"
+            ></textarea>
+            <div id="editMsg" class="msg err hide" role="alert"></div>
+            <div class="actions">
+              <button id="rerunBtn" class="primary" type="button">
+                Start over with these changes
+              </button>
+              <button id="formatBtn" class="ghost" type="button">Format</button>
+              <button id="revertBtn" class="ghost" type="button">
+                Revert to original
+              </button>
+              <button id="cancelEditBtn" class="ghost" type="button">
+                Cancel
+              </button>
+            </div>
+            <p class="hint">
+              Re-runs steps 3 and 4 only. The document is not uploaded again, so
+              step 2 is not repeated.
+            </p>
+          </div>
         </details>
         <div class="actions hide" id="doneActions">
           <button id="returnBtn" class="primary hide" type="button">
@@ -675,6 +775,15 @@
         result: $("resultMsg"),
         respBox: $("respBox"),
         respJson: $("respJson"),
+        editBtn: $("editBtn"),
+        copyBtn: $("copyBtn"),
+        editor: $("editor"),
+        respEdit: $("respEdit"),
+        editMsg: $("editMsg"),
+        rerunBtn: $("rerunBtn"),
+        formatBtn: $("formatBtn"),
+        revertBtn: $("revertBtn"),
+        cancelEditBtn: $("cancelEditBtn"),
         doneActions: $("doneActions"),
         returnBtn: $("returnBtn"),
         againBtn: $("againBtn"),
@@ -682,6 +791,12 @@
 
       let selected = null;
       let busy = false;
+
+      /* Results of the current run. Module-scoped so the response editor can
+         re-run the Maximo steps against an edited payload. */
+      let out = {};
+      /* The digitiser's untouched response, for "Revert to original". */
+      let originalApi1 = null;
 
       /* ---------- config sanity check ---------------------------------------------
    Two mistakes have already happened in this file and both produced confusing
@@ -1049,15 +1164,83 @@
         el.progress.classList.add("hide");
         el.result.classList.add("hide");
         el.respBox.classList.add("hide");
+        el.respBox.open = false;
         el.doneActions.classList.add("hide");
         el.respJson.textContent = "";
         el.steps.innerHTML = "";
+        closeEditor();
+        out = {};
+        originalApi1 = null;
+      }
+
+      /* ---------- response panel + editor ---------------------------------------- */
+      function showResponses() {
+        if (!Object.keys(out).length) return;
+        el.respJson.textContent = JSON.stringify(out, null, 2);
+        el.respBox.classList.remove("hide");
+        /* Only offer the editor once there is a step-2 payload to edit. */
+        el.editBtn.disabled = out.api1 == null;
+      }
+
+      function openEditor() {
+        if (out.api1 == null) return;
+        el.respEdit.value = JSON.stringify(out.api1, null, 2);
+        el.editor.classList.remove("hide");
+        el.editBtn.classList.add("on");
+        el.editBtn.textContent = "Hide editor";
+        el.respBox.open = true;
+        hideEditError();
+        /* Start at the top of the payload rather than wherever focus lands. */
+        el.respEdit.scrollTop = 0;
+        el.respEdit.setSelectionRange(0, 0);
+      }
+
+      function closeEditor() {
+        el.editor.classList.add("hide");
+        el.editBtn.classList.remove("on");
+        el.editBtn.textContent = "Edit digitised JSON";
+        hideEditError();
+      }
+
+      function showEditError(msg) {
+        el.editMsg.innerHTML = '<span class="ic">!</span><span></span>';
+        el.editMsg.lastElementChild.textContent = msg;
+        el.editMsg.classList.remove("hide");
+      }
+      const hideEditError = () => el.editMsg.classList.add("hide");
+
+      /* Parse the textarea, reporting the offending line on failure. */
+      function parseEdited() {
+        const text = el.respEdit.value;
+        try {
+          const value = JSON.parse(text);
+          if (value === null || typeof value !== "object")
+            throw new Error("the top level must be a JSON object");
+          return value;
+        } catch (e) {
+          const at = /position (\d+)/.exec(e.message);
+          let where = "";
+          if (at) {
+            const upto = text.slice(0, Number(at[1]));
+            where = ` (line ${upto.split("\n").length}, column ${
+              upto.length - upto.lastIndexOf("\n")
+            })`;
+          }
+          showEditError(`Not valid JSON${where}: ${e.message}`);
+          return null;
+        }
       }
 
       function setBusy(on) {
         busy = on;
         el.submit.disabled = on || !selected;
         el.clear.disabled = on;
+        el.rerunBtn.disabled = on;
+        el.revertBtn.disabled = on;
+        el.editBtn.disabled = on || out.api1 == null;
+        el.rerunBtn.innerHTML = on
+          ? '<span class="spin" aria-hidden="true"></span>Processing…'
+          : "Start over with these changes";
         el.submit.innerHTML = on
           ? '<span class="spin" aria-hidden="true"></span>Uploading…'
           : "Upload form";
@@ -1139,6 +1322,93 @@
         return data;
       }
 
+      /* ---------- Maximo steps (3 and 4) -----------------------------------------
+   Split out of the submit handler so the response editor can re-run them
+   against an edited payload without uploading the document again. Reads
+   out.api1; writes out.api2 / out.api3. ----------------------------------- */
+      async function runMaximoSteps() {
+        const hasIdPath = !!CONFIG.api2.idPath;
+        const id = hasIdPath ? dotGet(out.api1, CONFIG.api2.idPath) : undefined;
+
+        /* --- API 2: Maximo. API 1's response is the request body. --- */
+        setStep("api2", "running", "Building form…");
+        const payload = CONFIG.api2.buildBody(out.api1, id, selected);
+        if (payload === undefined || payload === null)
+          throw new Error(
+            "API 1 returned no body, so there is nothing to send to Maximo.",
+          );
+        out.api2 = await call(CONFIG.api2, JSON.stringify(payload));
+        const num = CONFIG.api2.resultPath
+          ? (dotGet(out.api2, CONFIG.api2.resultPath) ??
+            dotGet(out.api2, "member.0." + CONFIG.api2.resultPath))
+          : undefined;
+        setStep(
+          "api2",
+          "done",
+          num != null
+            ? `${CONFIG.api2.resultPath}: ${num}`
+            : "Inspection form created",
+        );
+
+        /* --- API 3: remap inspcascadeoption[] to real Maximo numbers, then
+       PATCH them onto the record API 2 just created. --- */
+        setStep("api3", "running", "Mapping cascade options…");
+        const cascadeCount = (dotGet(out.api1, "inspcascadeoption") || []).length;
+        log(`api3: ${cascadeCount} cascade option(s) from api1`);
+        if (!cascadeCount) {
+          setStep("api3", "skipped", "No cascade options to map");
+        } else {
+          const { mapped, unresolved } = mapCascadeOptions(out.api1, out.api2);
+          if (unresolved.length)
+            throw new Error(
+              `${unresolved.length} of ${cascadeCount} cascade option(s) could not be matched to a field/question Maximo just created — check that descriptions match exactly.`,
+            );
+          const recordUrl = CONFIG.api3.urlFromResponse(out.api2);
+          log("api3 target url", recordUrl);
+          if (!recordUrl)
+            throw new Error(
+              "API 2's response had no inspectionformid, so the cascade options cannot be PATCHed onto it.",
+            );
+          out.api3 = await call(
+            CONFIG.api3,
+            JSON.stringify({ inspcascadeoption: mapped }),
+            recordUrl,
+          );
+          setStep("api3", "done", `${mapped.length} cascade option(s) mapped`);
+        }
+        banner("ok", "Inspection form built in Maximo successfully.");
+      }
+
+      function markRunSucceeded() {
+        log("--- run done: success ---", out);
+        /* The editor's job is done — collapse it so the success state is clean.
+           "Edit digitised JSON" reopens it with the payload that worked. */
+        closeEditor();
+        el.doneActions.classList.remove("hide");
+        if (CONFIG.returnUrl || window.opener)
+          el.returnBtn.classList.remove("hide");
+      }
+
+      function handleRunFailure(e) {
+        console.error("[digitise] --- run failed ---", e, out);
+        API_STEPS.forEach((k) => {
+          const li = $("step-" + k);
+          if (!li) return;
+          if (li.dataset.state === "running") setStep(k, "failed", e.message);
+          else if (li.dataset.state === "pending")
+            setStep(k, "skipped", "Not run");
+        });
+        banner("err", "Submission failed. Nothing further was sent.");
+        out.error = e.message;
+        el.doneActions.classList.remove("hide");
+        /* If step 2 produced a payload, the fix is almost always in that JSON —
+           so put the user straight into the editor. */
+        if (out.api1 != null) {
+          showResponses();
+          openEditor();
+        }
+      }
+
       /* ---------- submit workflow ------------------------------------------------ */
       el.submit.addEventListener("click", async () => {
         if (busy) return;
@@ -1170,7 +1440,8 @@
         );
         setBusy(true);
 
-        const out = {};
+        out = {};
+        originalApi1 = null;
         log(`--- run start: ${selected.name} (${TWO_STEP ? "3-step" : "1-step"} workflow) ---`);
         try {
           /* --- API 1: digitisation service --- */
@@ -1253,84 +1524,84 @@
                 : "Digitised",
             );
 
-            /* --- API 2: Maximo. API 1's response is the request body. --- */
-            setStep("api2", "running", "Building form…");
-            const payload = CONFIG.api2.buildBody(out.api1, id, selected);
-            if (payload === undefined || payload === null)
-              throw new Error(
-                "API 1 returned no body, so there is nothing to send to Maximo.",
-              );
-            out.api2 = await call(CONFIG.api2, JSON.stringify(payload));
-            const num = CONFIG.api2.resultPath
-              ? (dotGet(out.api2, CONFIG.api2.resultPath) ??
-                dotGet(out.api2, "member.0." + CONFIG.api2.resultPath))
-              : undefined;
-            setStep(
-              "api2",
-              "done",
-              num != null
-                ? `${CONFIG.api2.resultPath}: ${num}`
-                : "Inspection form created",
-            );
-
-            /* --- API 3: remap inspcascadeoption[] to real Maximo numbers, then
-         PATCH them onto the record API 2 just created. --- */
-            setStep("api3", "running", "Mapping cascade options…");
-            const cascadeCount = (dotGet(out.api1, "inspcascadeoption") || [])
-              .length;
-            log(`api3: ${cascadeCount} cascade option(s) from api1`);
-            if (!cascadeCount) {
-              setStep("api3", "skipped", "No cascade options to map");
-            } else {
-              const { mapped, unresolved } = mapCascadeOptions(
-                out.api1,
-                out.api2,
-              );
-              if (unresolved.length)
-                throw new Error(
-                  `${unresolved.length} of ${cascadeCount} cascade option(s) could not be matched to a field/question Maximo just created — check that descriptions match exactly.`,
-                );
-              const recordUrl = CONFIG.api3.urlFromResponse(out.api2);
-              log("api3 target url", recordUrl);
-              if (!recordUrl)
-                throw new Error(
-                  "API 2's response had no inspectionformid, so the cascade options cannot be PATCHed onto it.",
-                );
-              out.api3 = await call(
-                CONFIG.api3,
-                JSON.stringify({ inspcascadeoption: mapped }),
-                recordUrl,
-              );
-              setStep(
-                "api3",
-                "done",
-                `${mapped.length} cascade option(s) mapped`,
-              );
-            }
-            banner("ok", "Inspection form built in Maximo successfully.");
+            await runMaximoSteps();
           }
 
-          log("--- run done: success ---", out);
-          el.doneActions.classList.remove("hide");
-          if (CONFIG.returnUrl || window.opener)
-            el.returnBtn.classList.remove("hide");
+          markRunSucceeded();
         } catch (e) {
-          console.error("[digitise] --- run failed ---", e, out);
-          API_STEPS.forEach((k) => {
-            const li = $("step-" + k);
-            if (li.dataset.state === "running") setStep(k, "failed", e.message);
-            else if (li.dataset.state === "pending")
-              setStep(k, "skipped", "Not run");
-          });
-          banner("err", "Submission failed. Nothing further was sent.");
-          out.error = e.message;
-          el.doneActions.classList.remove("hide");
+          handleRunFailure(e);
         } finally {
           setBusy(false);
-          if (Object.keys(out).length) {
-            el.respJson.textContent = JSON.stringify(out, null, 2);
-            el.respBox.classList.remove("hide");
-          }
+          showResponses();
+        }
+      });
+
+      /* ---------- response editor: re-run steps 3 and 4 with edited JSON --------- */
+      el.editBtn.addEventListener("click", () => {
+        if (busy) return;
+        if (el.editor.classList.contains("hide")) openEditor();
+        else closeEditor();
+      });
+
+      el.cancelEditBtn.addEventListener("click", () => closeEditor());
+
+      el.formatBtn.addEventListener("click", () => {
+        const parsed = parseEdited();
+        if (!parsed) return;
+        hideEditError();
+        el.respEdit.value = JSON.stringify(parsed, null, 2);
+      });
+
+      el.revertBtn.addEventListener("click", () => {
+        if (busy) return;
+        const source = originalApi1 ?? out.api1;
+        if (source == null) return;
+        el.respEdit.value = JSON.stringify(source, null, 2);
+        hideEditError();
+        log("editor reverted to the digitiser's original response");
+      });
+
+      el.copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(el.respJson.textContent || "");
+          el.copyBtn.textContent = "Copied";
+          setTimeout(() => (el.copyBtn.textContent = "Copy all"), 1200);
+        } catch (_) {
+          el.copyBtn.textContent = "Copy failed";
+          setTimeout(() => (el.copyBtn.textContent = "Copy all"), 1200);
+        }
+      });
+
+      el.rerunBtn.addEventListener("click", async () => {
+        if (busy) return;
+        const edited = parseEdited();
+        if (!edited) return;
+        hideEditError();
+
+        /* Keep the digitiser's untouched response for "Revert to original". */
+        if (originalApi1 == null) originalApi1 = out.api1;
+
+        const changed = JSON.stringify(edited) !== JSON.stringify(originalApi1);
+        out = { api1: edited };
+
+        /* Steps 1 and 2 already happened; reset only what is about to re-run. */
+        setStep("api1", "done", changed ? "Digitised (edited)" : "Digitised");
+        setStep("api2", "pending", "");
+        setStep("api3", "pending", "");
+        el.result.classList.add("hide");
+        el.doneActions.classList.add("hide");
+        showResponses();
+
+        setBusy(true);
+        log(`--- re-run from step 3${changed ? " with edited payload" : ""} ---`);
+        try {
+          await runMaximoSteps();
+          markRunSucceeded();
+        } catch (e) {
+          handleRunFailure(e);
+        } finally {
+          setBusy(false);
+          showResponses();
         }
       });
 
