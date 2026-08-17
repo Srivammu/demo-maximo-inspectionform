@@ -25,7 +25,7 @@ const BASE_URL = "https://dev-mms.eam360.com/digitiser";
 const PATH = "/api/v1/form-digitisation/upload?target_format=maximo";
 const FIELD = "source_file";
 const API_KEY = "jT1pyUNC,ja==+gPk@KCh{qyEtAu3s.e";
-const TIMEOUT_MS = 120000;
+const TIMEOUT_MS = 270000;
 
 module.exports.config = { api: { bodyParser: true } };
 

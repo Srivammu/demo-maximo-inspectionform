@@ -609,8 +609,19 @@
      (works when Maximo opened this page with window.open / launch-in-context). */
         returnUrl: "",
 
-        /* Abort any call after this many ms. */
-        timeoutMs: 60000,
+        /* Abort any call after this many ms.
+     Real digitisation of a multi-page PDF takes minutes. Three limits are
+     stacked and they MUST stay in this order, shortest first, or you get a
+     useless error instead of a real one:
+
+       api/upload.js  TIMEOUT_MS        270s  ← proxy gives up, returns a 504
+       this value                       285s  ← browser waits slightly longer so
+                                                the proxy's message is what shows
+       vercel.json    maxDuration       300s  ← platform ceiling (Hobby maximum)
+
+     Inverted, the browser aborts first — which is what produced
+     "Timed out after 60s" while the digitiser was still working. */
+        timeoutMs: 285000,
 
         /* ---- File validation ---------------------------------------------------- */
         validation: {
@@ -632,11 +643,14 @@
           /* MIME is advisory only — browsers report it inconsistently. Leave empty
        to validate on extension + size alone. */
           allowedMimeTypes: [],
-          /* 3 MB, not 20. Vercel rejects request bodies over 4.5 MB at the
-         platform level, before our proxy runs, and base64 inflates the file by
-         about a third — so 3 MB of file is roughly 4 MB on the wire. Raise this
-         if you only ever run locally with `node dev-server.js`. */
-          maxSizeMb: 3,
+          /* Your limit. Honoured in full when running locally.
+         When DEPLOYED to Vercel the effective limit is lower and is computed at
+         runtime (see PLATFORM_BODY_LIMIT below): Vercel rejects function
+         request bodies over 4.5 MB, and the file is base64-encoded into that
+         body, which inflates it by 4/3. So ~3.2 MB of file is the deployed
+         ceiling no matter what this says, and the UI tells the user that
+         instead of letting the platform return an opaque 413. */
+          maxSizeMb: 5,
           rejectEmptyFiles: true,
         },
 
@@ -989,10 +1003,34 @@
         return { mapped, unresolved };
       }
 
+      /* ---------- effective size limit --------------------------------------------
+   CONFIG.validation.maxSizeMb is what we would like to allow. What we can
+   actually allow depends on where this page is served from:
+
+     locally (`node dev-server.js`) → no cap beyond CONFIG
+     on Vercel                      → the function REQUEST BODY is capped at
+                                       4.5 MB, and the file is base64'd into it
+                                       (+1/3), so the file itself must be ~3.2 MB
+
+   Computing this here means the user is told the real limit up front, instead
+   of the platform returning a bare 413 after a long encode. -------------- */
+      const PLATFORM_BODY_LIMIT = 4500000; // Vercel, fixed, not configurable
+      const RUNS_LOCALLY = ["localhost", "127.0.0.1", "[::1]", ""].includes(
+        location.hostname,
+      );
+      const platformMaxFileBytes = Math.floor(
+        ((PLATFORM_BODY_LIMIT - 2048) / 4) * 3,
+      );
+
       /* ---------- static text ---------------------------------------------------- */
       const v = CONFIG.validation;
+      const configMaxFileBytes = v.maxSizeMb * 1048576;
+      const maxFileBytes = RUNS_LOCALLY
+        ? configMaxFileBytes
+        : Math.min(configMaxFileBytes, platformMaxFileBytes);
+      const platformCapped = maxFileBytes < configMaxFileBytes;
       const extList = v.allowedExtensions.map((e) => "." + e).join(", ");
-      el.hint.textContent = `Accepted: ${v.hint || extList} · max ${v.maxSizeMb} MB`;
+      el.hint.textContent = `Accepted: ${v.hint || extList} · max ${fmtSize(maxFileBytes)}`;
       el.hint.title = extList;
       el.input.accept = v.allowedExtensions
         .map((e) => "." + e)
@@ -1019,8 +1057,10 @@
           return `The file's content type (${file.type}) is not accepted.`;
         if (v.rejectEmptyFiles && file.size === 0)
           return "That file is empty (0 bytes).";
-        if (file.size > v.maxSizeMb * 1048576)
-          return `File is ${fmtSize(file.size)}. The limit is ${v.maxSizeMb} MB.`;
+        if (file.size > maxFileBytes)
+          return platformCapped
+            ? `File is ${fmtSize(file.size)}. On this deployment the limit is ${fmtSize(maxFileBytes)}, not ${v.maxSizeMb} MB: the file is base64-encoded for upload and the host rejects request bodies over 4.5 MB. Run it locally with "node dev-server.js" to use the full ${v.maxSizeMb} MB.`
+            : `File is ${fmtSize(file.size)}. The limit is ${v.maxSizeMb} MB.`;
         return null;
       }
 
@@ -1131,6 +1171,29 @@
         });
       }
 
+      /* Digitisation can run for minutes. Without a visible clock a running step
+         is indistinguishable from a hung one, so tick the seconds. */
+      const stepTimers = {};
+      function stopStepTimer(key) {
+        if (stepTimers[key]) {
+          clearInterval(stepTimers[key]);
+          delete stepTimers[key];
+        }
+      }
+      function stopAllStepTimers() {
+        Object.keys(stepTimers).forEach(stopStepTimer);
+      }
+      function startStepTimer(key, base) {
+        stopStepTimer(key);
+        const det = $("step-" + key)?.querySelector(".det");
+        if (!det) return;
+        const t0 = Date.now();
+        stepTimers[key] = setInterval(() => {
+          const s = Math.round((Date.now() - t0) / 1000);
+          det.textContent = s < 3 ? base : `${base} · ${s}s elapsed`;
+        }, 1000);
+      }
+
       function setStep(key, state, detail) {
         const li = $("step-" + key);
         if (!li) return;
@@ -1142,6 +1205,8 @@
         else if (state === "failed") dot.textContent = "✕";
         else dot.textContent = String(idx);
         li.querySelector(".det").textContent = detail || "";
+        if (state === "running") startStepTimer(key, detail || "");
+        else stopStepTimer(key);
       }
 
       function banner(kind, text) {
@@ -1153,6 +1218,7 @@
       }
 
       function resetRun() {
+        stopAllStepTimers();
         el.progress.classList.add("hide");
         el.result.classList.add("hide");
         el.respBox.classList.add("hide");

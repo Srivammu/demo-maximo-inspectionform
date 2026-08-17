@@ -16,7 +16,7 @@ const QUERY = "?ignorecollectionref=1&lean=1";
 const BASE_URL = "https://maseam360.manage.maseam360.apps.masdev.eam360.com/maximo";
 const OS_PATH = "/api/os/mxapiinspform";
 const APIKEY = "6l1cccr640vj72m6cn3uo88hbp6568sa3hiup6j";
-const TIMEOUT_MS = 120000;
+const TIMEOUT_MS = 180000;
 
 
 function authHeaders() {
