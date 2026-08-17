@@ -16,7 +16,7 @@ const QUERY = "?ignorecollectionref=1&lean=1";
 const BASE_URL = "https://demo.eam360.com/maxrest";
 const OS_PATH = "/oslc/os/mxapiinspform";
 const MAXAUTH = "Sk9ITjpTZWRpbkAxMjM="; // base64 of "JOHN:Sedin@123"
-const TIMEOUT_MS = 120000;
+const TIMEOUT_MS = 180000;
 
 
 function authHeaders() {

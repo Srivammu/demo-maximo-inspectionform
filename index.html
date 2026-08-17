@@ -609,8 +609,19 @@
      (works when Maximo opened this page with window.open / launch-in-context). */
         returnUrl: "",
 
-        /* Abort any call after this many ms. */
-        timeoutMs: 60000,
+        /* Abort any call after this many ms.
+     Real digitisation of a multi-page PDF takes minutes, not seconds, so this
+     has to be generous. Three limits are stacked and they MUST stay in this
+     order, shortest first, or you get a useless error instead of a real one:
+
+       api/upload.js  TIMEOUT_MS      270s  ← proxy gives up, returns a 504
+       this value                     285s  ← browser waits slightly longer, so
+                                              the proxy's message is what shows
+       Vercel maxDuration (vercel.json) 300s ← platform ceiling, Hobby maximum
+
+     Invert them and the browser aborts first, which is what produced
+     "Timed out after 60s" while the digitiser was still working. */
+        timeoutMs: 285000,
 
         /* ---- File validation ---------------------------------------------------- */
         validation: {
@@ -632,10 +643,22 @@
           /* MIME is advisory only — browsers report it inconsistently. Leave empty
        to validate on extension + size alone. */
           allowedMimeTypes: [],
-          /* 3 MB, not 20. Vercel rejects request bodies over 4.5 MB at the
-         platform level, before our proxy runs, and base64 inflates the file by
-         about a third — so 3 MB of file is roughly 4 MB on the wire. Raise this
-         if you only ever run locally with `node dev-server.js`. */
+          /* 3 MB is the practical maximum on Vercel — it cannot be raised to 5.
+         Vercel caps a function's REQUEST BODY at 4.5 MB and returns
+         413 FUNCTION_PAYLOAD_TOO_LARGE before our proxy ever runs. The file is
+         base64'd into that body, which inflates it by 4/3:
+
+             3.0 MB file → 4.19 MB body   ← fits, ~300 KB headroom
+             3.2 MB file → 4.47 MB body   ← 26 KB headroom, too tight
+             5.0 MB file → 6.85 MB body   ← rejected, 413
+
+         To actually accept 5 MB the file has to stop travelling through the
+         function body. Options, in order of effort:
+           1. Run locally with `node dev-server.js` — no 4.5 MB cap. Raise this
+              number freely there.
+           2. Get CORS enabled on the digitiser so the browser POSTs to it
+              directly, skipping our proxy for the big payload.
+           3. Upload to blob storage and hand the proxy a URL instead. */
           maxSizeMb: 3,
           rejectEmptyFiles: true,
         },
@@ -1139,6 +1162,29 @@
         });
       }
 
+      /* Digitisation can run for minutes. Without a visible clock a running
+         step is indistinguishable from a hung one, so tick the seconds. */
+      const stepTimers = {};
+      function stopStepTimer(key) {
+        if (stepTimers[key]) {
+          clearInterval(stepTimers[key]);
+          delete stepTimers[key];
+        }
+      }
+      function stopAllStepTimers() {
+        Object.keys(stepTimers).forEach(stopStepTimer);
+      }
+      function startStepTimer(key, base) {
+        stopStepTimer(key);
+        const det = $("step-" + key)?.querySelector(".det");
+        if (!det) return;
+        const t0 = Date.now();
+        stepTimers[key] = setInterval(() => {
+          const s = Math.round((Date.now() - t0) / 1000);
+          det.textContent = s < 3 ? base : `${base} · ${s}s elapsed`;
+        }, 1000);
+      }
+
       function setStep(key, state, detail) {
         const li = $("step-" + key);
         if (!li) return;
@@ -1150,6 +1196,8 @@
         else if (state === "failed") dot.textContent = "✕";
         else dot.textContent = String(idx);
         li.querySelector(".det").textContent = detail || "";
+        if (state === "running") startStepTimer(key, detail || "");
+        else stopStepTimer(key);
       }
 
       function banner(kind, text) {
@@ -1161,6 +1209,7 @@
       }
 
       function resetRun() {
+        stopAllStepTimers();
         el.progress.classList.add("hide");
         el.result.classList.add("hide");
         el.respBox.classList.add("hide");
