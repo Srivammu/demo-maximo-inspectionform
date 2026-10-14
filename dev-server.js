@@ -133,7 +133,7 @@ server.on("error", (e) => {
 
 server.listen(PORT, () => {
   console.log(`\n  Inspection form UI running:  http://localhost:${PORT}\n`);
-  console.log(`  digitiser      : https://dev-mms.eam360.com/digitiser`);
+  console.log(`  digitiser      : https://test-mms.eam360.com/digitiser`);
   console.log(`  Maximo         : https://maseam360.manage.maseam360.apps.masdev.eam360.com/maximo`);
   console.log(`  Maximo auth    : APIKEY`);
   console.log(`\n  All three API calls are proxied through this server, so the`);
