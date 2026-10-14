@@ -22,7 +22,7 @@
  */
 
 const BASE_URL = "https://test-mms.eam360.com/digitiser";
-const PATH = "/api/v1/form-digitisation/upload/mock?target_format=maximo";
+const PATH = "/api/v1/form-digitisation/upload?target_format=maximo";
 const FIELD = "source_file";
 const API_KEY = "jT1pyUNC,ja==+gPk@KCh{qyEtAu3s.e";
 const TIMEOUT_MS = 270000;
